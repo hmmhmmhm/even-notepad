@@ -169,7 +169,7 @@ test('preserves tool completion events with structured detail from the server', 
   assert.equal(events[0].name, 'Shell');
 });
 
-test('a helper permission request interrupts only the helper', async () => {
+test('a helper permission request does not interrupt any session', async () => {
   const writes = [];
   const client = createCodexClient({ onStatus() {}, fetcher: async (url, options) => {
     if (options.method === 'POST') {
@@ -177,23 +177,23 @@ test('a helper permission request interrupts only the helper', async () => {
       return respond({ sessionId: 'helper', ok: true });
     }
     if (url.includes('/api/messages')) {
-      return respond({ state: 'awaiting', messages: [{ id: 1, type: 'user_prompt', text: 'test' }, { id: 2, type: 'permission_request' }] });
+      return respond({ state: 'awaiting', messages: [{ id: 1, type: 'user_prompt', text: writes[0][1].text }, { id: 2, type: 'permission_request' }] });
     }
     return respond({ sessions: [] });
   } });
   await client.connect('http://localhost', 'token');
-  await assert.rejects(client.suggestReplies({ originalId: 'original', prompt: 'test', beforeSubmit: async () => {}, onSession: async () => {} }), /tool use/i);
-  assert.deepEqual(writes.map(([path, body]) => [path, body.sessionId]), [['/api/prompt', undefined], ['/api/interrupt', 'helper']]);
+  await assert.rejects(client.suggestReplies({ originalId: 'original', prompt: 'test', beforeSubmit: async () => {}, onSession: async () => {} }), /requires attention/i);
+  assert.deepEqual(writes.map(([path, body]) => [path, body.sessionId]), [['/api/prompt', undefined]]);
 });
 
 test('the helper ignores results already delivered before the new prompt', async () => {
   const old = { id: 4, type: 'result', text: 'old result' };
-  let posted = false;
+  let posted;
   const client = createCodexClient({ onStatus() {}, fetcher: async (url, options) => {
-    if (options.method === 'POST') { posted = true; return respond({ sessionId: 'helper' }); }
+    if (options.method === 'POST') { posted = JSON.parse(options.body).text; return respond({ sessionId: 'helper' }); }
     if (url.includes('/api/messages')) {
       assert.equal(new URL(url).searchParams.get('after'), posted ? '4' : '0');
-      return respond({ state: 'idle', messages: posted ? [old, { id: 5, type: 'user_prompt', text: 'test' }, { id: 6, type: 'result', success: true, text: 'new result' }] : [old] });
+      return respond({ state: 'idle', messages: posted ? [old, { id: 5, type: 'user_prompt', text: posted }, { id: 6, type: 'result', success: true, text: 'new result' }] : [old] });
     }
     return respond({ sessions: [] });
   } });
@@ -203,13 +203,95 @@ test('the helper ignores results already delivered before the new prompt', async
 
 test('helper suggestions require an explicit successful result from their own submitted prompt', async () => {
   const prompt = 'our prompt';
+  let submitted;
   const client = createCodexClient({ onStatus() {}, fetcher: async (url, options) => {
-    if (options.method === 'POST') return respond({ sessionId: 'helper' });
+    if (options.method === 'POST') { submitted = JSON.parse(options.body).text; return respond({ sessionId: 'helper' }); }
     if (url.includes('/api/messages')) return respond({
-      state: 'idle', messages: [{ id: 1, type: 'user_prompt', text: prompt }, { id: 2, type: 'result', text: 'unconfirmed' }],
+      state: 'idle', messages: [{ id: 1, type: 'user_prompt', text: submitted }, { id: 2, type: 'result', text: 'unconfirmed' }],
     });
     return respond({ sessions: [] });
   } });
   await client.connect('http://localhost', 'token');
   await assert.rejects(client.suggestReplies({ originalId: 'original', prompt, beforeSubmit: async () => {}, onSession: async () => {} }), /reply failed/i);
+});
+
+test('a lost receipt for a known helper is recovered by matching the submitted prompt in read-only polling', async () => {
+  let submitted, marker, posts = 0, settled = 0;
+  const client = createCodexClient({ onStatus() {}, fetcher: async (url, options) => {
+    const path = new URL(url);
+    if (options.method === 'POST') {
+      assert.equal(path.pathname, '/api/prompt');
+      assert.equal(++posts, 1);
+      const body = JSON.parse(options.body);
+      assert.equal(body.sessionId, 'helper');
+      submitted = body.text;
+      throw new Error('Receipt dropped');
+    }
+    if (path.pathname === '/api/messages') {
+      assert.equal(path.searchParams.get('sessionId'), 'helper');
+      if (!submitted) return respond({ state: 'idle', messages: [{ id: 4, type: 'result', success: true, text: 'old' }] });
+      assert.equal(path.searchParams.get('after'), '4');
+      return respond({ state: 'idle', messages: [
+        { id: 5, type: 'user_prompt', text: 'Another request' },
+        { id: 6, type: 'result', success: true, text: 'Not our response' },
+        { id: 7, type: 'user_prompt', text: submitted },
+        { id: 8, type: 'result', success: true, text: 'Recovered' },
+      ] });
+    }
+    return respond({ sessions: [] });
+  } });
+  await client.connect('http://localhost', 'token');
+  assert.equal(await client.suggestReplies({
+    originalId: 'original', helperId: 'helper', prompt: 'test',
+    beforeSubmit: async pending => { marker = pending; },
+    onSession: async () => { assert.fail('Receipt was lost'); },
+    onSettled: async () => { settled++; },
+  }), 'Recovered');
+  assert.equal(marker.after, 4);
+  assert.ok(submitted.endsWith(marker.nonce));
+  assert.equal(posts, 1);
+  assert.equal(settled, 1);
+});
+
+test('a persisted request for a known helper can be checked with GET only', async () => {
+  const pending = { nonce: 'a'.repeat(32), after: 9 };
+  let settled = 0;
+  const client = createCodexClient({ onStatus() {}, fetcher: async (url, options) => {
+    assert.notEqual(options.method, 'POST');
+    const path = new URL(url);
+    if (path.pathname !== '/api/messages') return respond({ sessions: [] });
+    assert.equal(path.searchParams.get('sessionId'), 'helper');
+    assert.equal(path.searchParams.get('after'), '9');
+    return respond({ state: 'idle', messages: [
+      { id: 10, type: 'user_prompt', text: 'original context\n\nQuiet Terminal request ID: ' + pending.nonce },
+      { id: 11, type: 'result', success: true, text: 'Recovered result' },
+    ] });
+  } });
+  await client.connect('http://localhost', 'token');
+  const result = await client.suggestReplies({
+    originalId: 'original', helperId: 'helper', prompt: '', pending,
+    beforeSubmit: async () => { assert.fail('Recovery submitted again'); },
+    onSession: async () => { assert.fail('Recovery created a session'); },
+    onSettled: async () => { settled++; },
+  });
+  assert.equal(result, 'Recovered result');
+  assert.equal(settled, 1);
+});
+
+test('a suggested reply cannot send after a newer original prompt appears in preflight', async () => {
+  let posts = 0;
+  const statuses = [];
+  const client = createCodexClient({ onStatus: status => statuses.push(status), fetcher: async (url, options) => {
+    if (options.method === 'POST') { posts++; return respond({ sessionId: 'original' }); }
+    if (url.includes('/api/messages')) return respond({ state: 'idle', messages: [
+      { id: 9, type: 'user_prompt', text: 'The conversation changed.' },
+      { id: 10, type: 'result', success: true, text: 'New response' },
+    ] });
+    return respond({ sessions: [] });
+  } });
+  await client.connect('http://localhost', 'token');
+  client.select('original');
+  assert.equal(await client.send('http://localhost', 'token', 'Stale reply', () => true), false);
+  assert.equal(posts, 0);
+  assert.match(statuses.at(-1), /context changed/i);
 });

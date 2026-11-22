@@ -5,7 +5,8 @@ export type ReplyStorage = {
   write(value: string): Promise<void>;
 };
 
-type HelperEntry = [origin: string, original: string, helper: string | null];
+export type PendingReply = { nonce: string; after: number };
+export type HelperEntry = [origin: string, original: string, helper: string | null, pending?: PendingReply];
 export const replyLimit = 30;
 const batchSize = 3;
 const lineColumns = 36;
@@ -48,9 +49,12 @@ const replyKey = (reply: string) => reply.normalize('NFKC').toLowerCase().replac
 export function readHelpers(raw: string): HelperEntry[] {
   const data: unknown = raw ? JSON.parse(raw) : [];
   if (!Array.isArray(data)) throw new Error('Invalid helper registry.');
-  return data.filter((entry): entry is HelperEntry => Array.isArray(entry) && entry.length === 3
+  return data.filter((entry): entry is HelperEntry => Array.isArray(entry) && (entry.length === 3 || entry.length === 4)
     && typeof entry[0] === 'string' && typeof entry[1] === 'string'
-    && (entry[2] === null || typeof entry[2] === 'string'));
+    && (entry[2] === null || typeof entry[2] === 'string')
+    && (entry.length === 3 || (entry[3] && typeof entry[3] === 'object'
+      && typeof entry[3].nonce === 'string' && /^[a-f0-9]{32}$/.test(entry[3].nonce)
+      && Number.isSafeInteger(entry[3].after) && entry[3].after >= 0)));
 }
 
 export function replyPrompt(history: readonly { role: string; text: string }[], previous: readonly string[]) {

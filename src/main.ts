@@ -956,7 +956,7 @@ async function connect() {
       const type = event.textEvent?.eventType ?? event.listEvent?.eventType ?? event.sysEvent?.eventType;
       reportEdit.trace('glasses event ' + (type ?? '?') + ' ' + terminalMode);
       if (type === OsEventTypeList.FOREGROUND_EXIT_EVENT || type === OsEventTypeList.ABNORMAL_EXIT_EVENT || type === OsEventTypeList.SYSTEM_EXIT_EVENT) { glassesActive = false; glassesScroll.reset(); resetMomentum(); return; }
-      if (type === OsEventTypeList.FOREGROUND_ENTER_EVENT) { glassesActive = true; glassesScroll.reset(); resetMomentum(); return; }
+      if (type === OsEventTypeList.FOREGROUND_ENTER_EVENT) { glassesActive = true; glassesScroll.reset(); resetMomentum(); void flush(); return; }
       const sourceName = event.textEvent?.containerName || event.listEvent?.containerName;
       if (home) {
         const captureName = computerPicker ? 'pm-c' + computerPicker.id : 'pm-home';
@@ -987,7 +987,7 @@ async function connect() {
       if (sourceName?.startsWith('pm-r') && codexView) return;
       if (xView && (rebuilding || displayedLayout !== 'x' || xDialog.open || codexDialog.open || required<HTMLDialogElement>('#documents').open || (sourceName && sourceName !== 'x-frame'))) return;
       if (newsView && (rebuilding || displayedLayout !== 'news' || xDialog.open || codexDialog.open || required<HTMLDialogElement>('#documents').open || (sourceName && sourceName !== 'news-frame'))) return;
-      if (!glassesActive && sourceName && ((terminalMode === 'menu' && (sourceName === 'session-list-' + sessionMenu?.menuId || sourceName === 'pm-' + sessionMenu?.menuId)) || (terminalMode === 'chat' && sourceName === 'terminal-frame') || (xView && sourceName === 'x-frame') || (newsView && sourceName === 'news-frame') || (!codexView && !xView && !newsView && sourceName === 'terminal-frame'))) glassesActive = true;
+      if (!glassesActive && sourceName && ((terminalMode === 'menu' && (sourceName === 'session-list-' + sessionMenu?.menuId || sourceName === 'pm-' + sessionMenu?.menuId)) || (terminalMode === 'chat' && sourceName === 'terminal-frame') || (terminalMode === 'permission' && sourceName === 'writer') || (xView && sourceName === 'x-frame') || (newsView && sourceName === 'news-frame') || (!codexView && !xView && !newsView && sourceName === 'terminal-frame'))) glassesActive = true;
       const interactive = ready && glassesActive;
       if (interactive && type === OsEventTypeList.DOUBLE_CLICK_EVENT) {
         const terminalLayout = terminalMode === 'menu' ? menuLayout() : terminalMode === 'chat' ? 'chat' : 'terminal';

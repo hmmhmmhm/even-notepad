@@ -1,3 +1,5 @@
+import type { PendingReply } from './terminal-replies.ts';
+
 export type TerminalEvent = { id?: number; type: string; state?: string; text?: string; name?: string; summary?: string; toolId?: string; description?: string; toolName?: string; detail?: unknown; success?: boolean };
 export type Session = { id: string; title?: string; status?: string };
 type HistoryEntry = { role: string; text: string };
@@ -72,62 +74,82 @@ export function createCodexClient({ fetcher = fetch, onStatus, onSession = () =>
       if (data.error) throw new Error('Could not load history. Check the server.');
       return Array.isArray(data.history) ? data.history.filter(isHistory) : [];
     },
-    async suggestReplies({ originalId, helperId, prompt, beforeSubmit, onSession }: {
-      originalId: string; helperId?: string; prompt: string;
-      beforeSubmit: () => Promise<void>; onSession: (id: string) => Promise<void>;
+    async suggestReplies({ originalId, helperId, prompt, pending, beforeSubmit, onSession, onSettled = async () => {} }: {
+      originalId: string; helperId?: string; prompt: string; pending?: PendingReply;
+      beforeSubmit: (pending: PendingReply) => Promise<void>;
+      onSession: (id: string) => Promise<void>;
+      onSettled?: () => Promise<void>;
     }) {
       const messages = (id: string, after: number) => request('/api/messages?sessionId=' + encodeURIComponent(id) + '&provider=codex&after=' + after);
-      let after = 0;
-      if (helperId) {
-        const existing = await messages(helperId, after);
-        if (existing.error || existing.state !== 'idle') throw new Error('Helper is busy.');
-        for (const event of eventsOf(existing.messages)) if (event.id !== undefined && Number.isFinite(event.id)) after = Math.max(after, event.id);
+      let id = helperId;
+      if (id === originalId) throw new Error('Original session cannot be used as a reply helper.');
+      let marker: string;
+      let after = pending?.after ?? 0;
+      if (pending) {
+        if (!id) throw new Error('Reply helper is unknown.');
+        marker = 'Quiet Terminal request ID: ' + pending.nonce;
+      } else {
+        if (id) {
+          const existing = await messages(id, after);
+          if (existing.error || existing.state !== 'idle') throw new Error('Helper is busy.');
+          for (const event of eventsOf(existing.messages)) if (event.id !== undefined && Number.isSafeInteger(event.id)) after = Math.max(after, event.id);
+        }
+        const nonce = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+        marker = 'Quiet Terminal request ID: ' + nonce;
+        await beforeSubmit({ nonce, after });
+        try {
+          const result = await request('/api/prompt', {
+            method: 'POST',
+            body: JSON.stringify({ text: prompt + '\n\n' + marker, provider: 'codex', ...(id ? { sessionId: id } : {}) }),
+          });
+          if (result.error || typeof result.sessionId !== 'string' || !result.sessionId || result.sessionId === originalId
+            || (id && id !== result.sessionId)) throw new Error('Invalid helper session response.');
+          id = result.sessionId;
+          await onSession(id);
+        } catch (error) {
+          if (error instanceof TerminalServerError && [400, 401, 403, 404, 409, 422, 429].includes(error.status)) {
+            await onSettled();
+            throw error;
+          }
+          if (!id) throw error;
+          // A known helper can be checked without submitting again.
+        }
       }
-      await beforeSubmit();
-      const result = await request('/api/prompt', { method: 'POST', body: JSON.stringify({ text: prompt, provider: 'codex', ...(helperId ? { sessionId: helperId } : {}) }) });
-      if (result.error || typeof result.sessionId !== 'string' || !result.sessionId || result.sessionId === originalId
-        || (helperId && helperId !== result.sessionId)) throw new Error('Invalid helper session response.');
-      const id = result.sessionId;
       let ownTurn = false;
       let output = '';
-      let state: unknown;
-      const deadline = Date.now() + 65000;
-      try {
-        await onSession(id);
-        while (Date.now() < deadline) {
-          const poll = await messages(id, after).catch(() => null);
-          if (!poll || poll.error) { await wait(650); continue; }
-          state = poll.state;
-          for (const event of eventsOf(poll.messages)) {
-            if (event.id === undefined || !Number.isFinite(event.id) || event.id <= after) continue;
-            after = event.id;
-            if (event.type === 'user_prompt') {
-              ownTurn = event.text === prompt;
-              output = '';
+      let failed = false;
+      const deadline = Date.now() + (pending ? 10000 : 65000);
+      while (Date.now() < deadline) {
+        const poll = await messages(id, after).catch(() => null);
+        if (!poll || poll.error) { await wait(650); continue; }
+        for (const event of eventsOf(poll.messages)) {
+          if (event.id === undefined || !Number.isSafeInteger(event.id) || event.id <= after) continue;
+          after = event.id;
+          if (event.type === 'user_prompt') {
+            if (ownTurn) {
+              await onSettled();
+              throw new Error('Helper turn ended without a confirmed result.');
             }
-            if (!ownTurn) continue;
-            if (['tool_start', 'tool_end', 'permission_request', 'question_request'].includes(event.type)) throw new Error('Helper attempted tool use.');
-            if (event.type === 'text_delta') output += event.text || '';
-            if (output.length > 2000 || event.type === 'error' || (event.type === 'result' && event.success !== true)) throw new Error('Helper reply failed.');
-            if (event.type === 'result') {
-              const text = event.text || output;
-              if (text.length > 2000) throw new Error('Helper reply too long.');
-              return text;
-            }
+            const suffix = '\n\n' + marker;
+            ownTurn = pending ? event.text?.endsWith(suffix) === true : event.text === prompt + suffix;
+            output = '';
           }
-          if (ownTurn && state === 'awaiting') throw new Error('Helper attempted tool use.');
-          await wait(650);
+          if (!ownTurn) continue;
+          if (['tool_start', 'tool_end', 'permission_request', 'question_request'].includes(event.type)) failed = true;
+          if (event.type === 'text_delta' && !failed) output += event.text || '';
+          if (output.length > 2000) failed = true;
+          if (event.type === 'result' || event.type === 'error') {
+            await onSettled();
+            if (failed || event.type === 'error' || event.success !== true) throw new Error('Helper reply failed.');
+            const text = event.text || output;
+            if (text.length > 2000) throw new Error('Helper reply too long.');
+            return text;
+          }
         }
-        throw new Error('Helper timed out.');
-      } catch (error) {
-        if (ownTurn && (state === 'busy' || state === 'awaiting')) {
-          // The helper may already have finished or switched turns by the time the stop arrives.
-          try {
-            await request('/api/interrupt', { method: 'POST', body: JSON.stringify({ sessionId: id, provider: 'codex' }) });
-          } catch { /* The original failure remains the one reported to the caller. */ }
-        }
-        throw error;
+        if (ownTurn && poll.state === 'awaiting') throw new Error('Helper requires attention.');
+        await wait(650);
       }
+      throw new Error('Helper timed out.');
     },
     async interruptSession(id: string) {
       const result = await request('/api/interrupt', { method: 'POST', body: JSON.stringify({ sessionId: id, provider: 'codex' }) });
@@ -157,7 +179,7 @@ export function createCodexClient({ fetcher = fetch, onStatus, onSession = () =>
       void loop();
       return () => { stopped = true; };
     },
-    async send(url: string, secret: string, text: string) {
+    async send(url: string, secret: string, text: string, replyContextIsCurrent?: () => boolean) {
       if (active) return false;
       const parsed = parseAddress(url);
       secret = secret.trim();
@@ -167,10 +189,16 @@ export function createCodexClient({ fetcher = fetch, onStatus, onSession = () =>
       let submitting = false;
       onStatus('Connecting to Codex…');
       try {
+        const preflightCursor = watchCursor ?? 0;
         if (sessionId) {
-          const existing = await request('/api/messages?sessionId=' + encodeURIComponent(sessionId) + '&provider=codex&after=' + (watchCursor ?? 0));
+          const existing = await request('/api/messages?sessionId=' + encodeURIComponent(sessionId) + '&provider=codex&after=' + preflightCursor);
           if (existing.error || existing.state !== 'idle') {
             onStatus(existing.state === 'busy' || existing.state === 'awaiting' ? 'Session busy · Draft kept' : 'Check session status · Draft kept');
+            return false;
+          }
+          if (replyContextIsCurrent && (!replyContextIsCurrent() || eventsOf(existing.messages).some(event =>
+            event.type === 'user_prompt' && (event.id === undefined || event.id > preflightCursor)))) {
+            onStatus('Reply context changed · Open replies again');
             return false;
           }
           // Capture a baseline if the first observation is still in flight.

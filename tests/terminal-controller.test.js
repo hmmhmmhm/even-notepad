@@ -420,3 +420,123 @@ test('back from replies, permission and the session list returns one level at a 
   assert.equal(unwatch, 1);
   assert.equal(interrupts, 0);
 });
+
+test('a pending suggestion survives closing and reopening its menu and the current turn finishing', async () => {
+  let observe, complete, view;
+  const controller = createTerminalController({
+    render: next => { view = next; },
+    exit() {},
+    replyStorage: { async read() { return ''; }, async write() {} },
+    makeClient: () => ({
+      active: false,
+      async connect() { return [{ id: 'original', status: 'busy' }]; },
+      select() {},
+      async history() { return []; },
+      watch(id, callback) { observe = callback; return () => {}; },
+      suggestReplies() { return new Promise(resolve => { complete = resolve; }); },
+    }),
+  });
+  await controller.connect('http://example', 'token');
+  controller.move(1); await controller.choose();
+  const generation = controller.openReplies();
+  await Promise.resolve();
+  controller.closeReplies();
+  await controller.openReplies();
+  assert.equal(view.replies.status, 'Finding replies…');
+  observe([{ type: 'result', success: true }], 'idle');
+  complete('["First", "Second", "Third"]');
+  await generation;
+  assert.deepEqual(view.replies.items, ['Back', 'First', 'Second', 'Third', 'More different replies']);
+  controller.leave();
+});
+
+test('a registry write failure before submitting does not lock the conversation', async () => {
+  let posts = 0, writes = 0, view;
+  const controller = createTerminalController({
+    render: next => { view = next; },
+    exit() {},
+    replyStorage: {
+      async read() { return ''; },
+      async write() { if (++writes === 1) throw new Error('Storage unavailable'); },
+    },
+    makeClient: () => ({
+      async connect() { return [{ id: 'original' }]; },
+      select() {},
+      async history() { return []; },
+      async suggestReplies({ beforeSubmit, onSession }) {
+        await beforeSubmit();
+        posts++;
+        await onSession('helper');
+        return '["First", "Second", "Third"]';
+      },
+    }),
+  });
+  await controller.connect('http://example', 'token');
+  controller.move(1); await controller.choose();
+  await controller.openReplies();
+  assert.equal(posts, 0);
+  assert.equal(view.replies.status, 'Could not find replies. Try again.');
+  controller.moveReplies(1); await controller.chooseReply();
+  assert.equal(posts, 1);
+  assert.ok(view.replies.items.includes('First'));
+  controller.leave();
+});
+
+test('a persisted helper request is reconciled without displaying replies for an earlier context', async () => {
+  const pending = { nonce: 'f'.repeat(32), after: 3 };
+  let storage = JSON.stringify([['http://example', 'original', 'helper', pending]]);
+  let view, newRequests = 0;
+  const controller = createTerminalController({
+    render: next => { view = next; },
+    exit() {},
+    replyStorage: { async read() { return storage; }, async write(data) { storage = data; } },
+    makeClient: () => ({
+      async connect() { return [{ id: 'original' }, { id: 'helper' }]; },
+      select() {},
+      async history() { return []; },
+      async suggestReplies(options) {
+        assert.equal(options.helperId, 'helper');
+        if (options.pending) {
+          assert.deepEqual(options.pending, pending);
+          await options.onSettled();
+          return '["Old one", "Old two", "Old three"]';
+        }
+        newRequests++;
+        return '["Fresh one", "Fresh two", "Fresh three"]';
+      },
+    }),
+  });
+  await controller.connect('http://example', 'token');
+  assert.deepEqual(view.items, ['＋ New session', '  Codex session', 'Back to computers']);
+  controller.move(1); await controller.choose(); await controller.openReplies();
+  assert.equal(newRequests, 0);
+  assert.deepEqual(view.replies.items, ['Back', 'More different replies']);
+  assert.deepEqual(JSON.parse(storage), [['http://example', 'original', 'helper']]);
+  controller.moveReplies(1); await controller.chooseReply();
+  assert.equal(newRequests, 1);
+  assert.ok(view.replies.items.includes('Fresh one'));
+  controller.leave();
+});
+
+test('removing Stop leaves the same suggested reply selected', async () => {
+  let observe, view;
+  const controller = createTerminalController({
+    render: next => { view = next; },
+    exit() {},
+    replyStorage: { async read() { return ''; }, async write() {} },
+    makeClient: () => ({
+      async connect() { return [{ id: 'original', status: 'busy' }]; },
+      select() {},
+      async history() { return []; },
+      watch(id, callback) { observe = callback; return () => {}; },
+      async suggestReplies() { return '["First", "Second", "Third"]'; },
+    }),
+  });
+  await controller.connect('http://example', 'token');
+  controller.move(1); await controller.choose(); await controller.openReplies();
+  controller.moveReplies(2);
+  assert.equal(view.replies.items[view.replies.selected], 'First');
+  observe([{ type: 'result', success: true }], 'idle');
+  assert.equal(view.replies.items[view.replies.selected], 'First');
+  controller.leave();
+});
