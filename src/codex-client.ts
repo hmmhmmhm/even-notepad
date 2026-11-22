@@ -28,9 +28,11 @@ function isHistory(value: unknown): value is HistoryEntry {
 class TerminalServerError extends Error {
   readonly status: number;
   readonly writerLocked: boolean;
+  readonly payloadTooLarge: boolean;
   constructor(status: number, detail: string) {
     super('Server error (' + status + ')'); this.status = status;
     this.writerLocked = /already has an active writer/i.test(detail);
+    this.payloadTooLarge = /max payload size exceeded/i.test(detail);
   }
 }
 export function createCodexClient({ fetcher = fetch, onStatus, onSession = () => {}, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }: ClientOptions) {
@@ -217,7 +219,7 @@ export function createCodexClient({ fetcher = fetch, onStatus, onSession = () =>
         onStatus(result.queued === true ? 'Queued' : 'Request received');
         return true;
       } catch (error) {
-        onStatus(error instanceof TerminalServerError && error.writerLocked ? 'Session in use · Draft kept' : submitting && (!(error instanceof TerminalServerError) || error.status >= 500)
+        onStatus(error instanceof TerminalServerError && error.writerLocked ? 'Session in use · Draft kept' : error instanceof TerminalServerError && error.payloadTooLarge ? 'Data too large · Draft kept' : submitting && (!(error instanceof TerminalServerError) || error.status >= 500)
           ? 'Receipt unconfirmed · Draft kept'
           : error instanceof Error ? error.message : 'Connection failed');
         return false;

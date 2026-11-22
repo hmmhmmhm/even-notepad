@@ -295,3 +295,20 @@ test('a suggested reply cannot send after a newer original prompt appears in pre
   assert.equal(posts, 0);
   assert.match(statuses.at(-1), /context changed/i);
 });
+
+test('reports the server payload limit without claiming a lost receipt', async () => {
+  const statuses = [];
+  let posts = 0;
+  const client = createCodexClient({ onStatus: status => statuses.push(status), fetcher: async url => {
+    if (url.endsWith('/api/prompt')) {
+      posts++;
+      return { ok: false, status: 500, json: async () => ({ error: 'codex app-server ws error: Max payload size exceeded' }) };
+    }
+    return respond({ state: 'idle', messages: [] });
+  } });
+  await client.connect('http://localhost', 'token');
+  client.select('s');
+  assert.equal(await client.send('http://localhost', 'token', 'keep this'), false);
+  assert.equal(posts, 1);
+  assert.equal(statuses.at(-1), 'Data too large · Draft kept');
+});

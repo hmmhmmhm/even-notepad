@@ -540,3 +540,27 @@ test('removing Stop leaves the same suggested reply selected', async () => {
   assert.equal(view.replies.items[view.replies.selected], 'First');
   controller.leave();
 });
+
+test('keeps a chosen suggestion and an existing phone draft on a confirmed send failure', async () => {
+  let view;
+  const controller = createTerminalController({
+    render: next => { view = next; }, exit() {},
+    replyStorage: { async read() { return ''; }, async write() {} },
+    makeClient: hooks => ({
+      active: false,
+      async connect() { return [{ id: 'original' }]; }, select() {},
+      async history() { return []; },
+      async suggestReplies() { return '["First", "Second", "Third"]'; },
+      async send() { hooks.onStatus('Data too large · Draft kept'); return false; },
+    }),
+  });
+  await controller.connect('http://example', 'token');
+  controller.move(1); await controller.choose();
+  controller.setDraft('my existing draft');
+  await controller.openReplies();
+  controller.moveReplies(1); await controller.chooseReply();
+  assert.equal(view.draft, 'my existing draft');
+  assert.equal(view.replies.items[view.replies.selected], 'First');
+  assert.match(view.replies.status, /Reply kept/);
+  controller.leave();
+});

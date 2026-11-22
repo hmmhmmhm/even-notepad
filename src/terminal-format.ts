@@ -84,3 +84,14 @@ export function terminalLines(messages: readonly Message[], measure: (text: stri
   }
   return lines.length ? lines : [{ text: 'New session', dim: false }];
 }
+
+export function terminalStatusLabel(status: string): string {
+  const label = (status || 'Ready').replace(/ · Hold for replies$/, '');
+  if (label.startsWith('Data too large')) return 'Too large';
+  if (label.startsWith('Receipt unconfirmed')) return 'Receipt unknown';
+  if (label.startsWith('Check session status')) return 'Check session';
+  if (label.startsWith('Session in use')) return 'In use · kept';
+  if (label.startsWith('Session busy')) return 'Busy · kept';
+  if (label.includes('Draft kept')) return 'Draft kept';
+  return label === 'Requesting stop…' ? 'Stopping…' : label;
+}

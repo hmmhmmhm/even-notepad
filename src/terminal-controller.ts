@@ -421,6 +421,11 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
       const accepted = await record.client.send(url, token, row.label, () => current === record
         && record.epoch === epoch && !!url && record.replyRevision === revision);
       if (accepted || record.status?.startsWith('Receipt unconfirmed') || record.status?.startsWith('Reply context changed')) invalidateReplies(record);
+      if (!accepted && current === record && mode === 'chat' && !replyMenu && record.replyRevision === revision
+          && /^(Session in use|Session busy|Check session status|Data too large)/.test(record.status || '')) {
+        menu.status = (record.status || '').replace('Draft kept', 'Reply kept');
+        replyMenu = menu;
+      }
       if (accepted && record.epoch === epoch && url && !record.externalBusy && (record.finishSequence || 0) === finishSequence) {
         record.awaitingStart = Date.now() + 15000;
         startClock(record);

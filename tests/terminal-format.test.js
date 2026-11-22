@@ -30,3 +30,12 @@ test('uses available width without double wrapping Korean', () => {
   assert.ok(lines.every(line => [...line.text].length <= 25));
   assert.ok(lines.slice(0, -1).every(line => [...line.text].length >= 20));
 });
+
+test('short status distinguishes an unknown receipt from an unavailable session', async () => {
+  const { terminalStatusLabel } = await import('../src/terminal-format.ts');
+  assert.equal(terminalStatusLabel('Data too large · Draft kept'), 'Too large');
+  assert.equal(terminalStatusLabel('Receipt unconfirmed · Draft kept'), 'Receipt unknown');
+  assert.equal(terminalStatusLabel('Check session status · Draft kept'), 'Check session');
+  assert.equal(terminalStatusLabel('Session in use · Draft kept'), 'In use · kept');
+  assert.equal(terminalStatusLabel('Session busy · Draft kept'), 'Busy · kept');
+});
