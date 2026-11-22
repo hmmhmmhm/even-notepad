@@ -1,4 +1,4 @@
-# Even Notepad 타자기 검수
+# Quiet Terminal 타자기 검수
 
 2026-11-20 · final result: passed
 

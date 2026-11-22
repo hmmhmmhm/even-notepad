@@ -1,6 +1,6 @@
 <div align="center">
 
-# EVEN NOTEPAD
+# QUIET TERMINAL
 
 **A private writing space for Even Realities G2**
 
@@ -11,11 +11,11 @@ Write on your phone and see your words on your glasses. Stay connected to your t
 ![Vite](https://img.shields.io/badge/built%20with-Vite-646CFF?style=flat-square&logo=vite&logoColor=white)
 ![Status](https://img.shields.io/badge/status-development-555?style=flat-square)
 
-[Features](#features) · [Getting started](#getting-started) · [Connections](docs/connections.md) · [Architecture](docs/architecture.md) · [Video](docs/media/even-notepad-preview.mp4) · [License](LICENSE)
+[Features](#features) · [Getting started](#getting-started) · [Connections](docs/connections.md) · [Architecture](docs/architecture.md) · [Video](docs/media/quiet-terminal-preview.mp4) · [License](LICENSE)
 
-[![Even Notepad preview](docs/media/even-notepad-preview.gif)](docs/media/even-notepad-preview.mp4)
+[![Quiet Terminal preview](docs/media/quiet-terminal-preview.gif)](docs/media/quiet-terminal-preview.mp4)
 
-[Watch the full preview](docs/media/even-notepad-preview.mp4)
+[Watch the full preview](docs/media/quiet-terminal-preview.mp4)
 
 </div>
 
@@ -58,7 +58,7 @@ Documents and connection settings are stored through the Even App SDK, or browse
 
 This is a development project. Application source is written in TypeScript and checked in strict mode. Simulator results and a promotional preview do not replace testing on an iPhone, G2 glasses, and a ring. See [Development](docs/development.md) for verification scope and known limitations.
 
-Even Notepad is an independent project and is not affiliated with or endorsed by Even Realities.
+Quiet Terminal is an independent project and is not affiliated with or endorsed by Even Realities.
 
 ## License and third-party materials
 

@@ -5,7 +5,7 @@ export function startupLayout(selected: number, status = '') {
     .slice(0, 5).map((row, index) => index ? ({ ...row, yPosition: row.yPosition + 50 }) : row);
   return {
     textObject: [
-      { xPosition: 58, yPosition: 15, width: 460, height: 36, textColor: 4, containerID: 8, containerName: 'home-title', content: 'Even Notepad', isEventCapture: 0 },
+      { xPosition: 58, yPosition: 15, width: 460, height: 36, textColor: 4, containerID: 8, containerName: 'home-title', content: 'Quiet Terminal', isEventCapture: 0 },
       ...rows,
       { xPosition: 16, yPosition: 224, width: 530, height: 40, textColor: 2, containerID: 4, containerName: 'home-status', content: status || ' ', isEventCapture: 0 },
     ],

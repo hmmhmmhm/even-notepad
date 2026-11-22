@@ -36,7 +36,7 @@ function main() {
   try { config = parsePrivateConfig(readFileSync(configPath, 'utf8')); }
   catch { throw new Error('Could not read private config. Check the file format.'); }
   const manifest = mergeTerminalOrigins(JSON.parse(readFileSync(join(root, 'app.json'), 'utf8')), config);
-  const stage = mkdtempSync(join(tmpdir(), 'even-notepad-private-'));
+  const stage = mkdtempSync(join(tmpdir(), 'quiet-terminal-private-'));
   try {
     for (const path of ['src', 'public', 'index.html', 'package.json']) cpSync(join(root, path), join(stage, path), { recursive: true });
     writeFileSync(join(stage, 'app.json'), JSON.stringify(manifest, null, 2) + '\n');
@@ -46,7 +46,7 @@ function main() {
     for (const origin of config.terminalOrigins) {
       if (!bundles.some(bundle => bundle.includes(origin))) throw new Error('Private origin missing from application bundle.');
     }
-    execFileSync(join(root, 'node_modules/.bin/evenhub'), ['pack', 'app.json', 'dist', '--sdk-ver', manifest.min_sdk_version, '-o', join(root, 'even-notepad.private.ehpk')], { cwd: stage, stdio: 'inherit' });
+    execFileSync(join(root, 'node_modules/.bin/evenhub'), ['pack', 'app.json', 'dist', '--sdk-ver', manifest.min_sdk_version, '-o', join(root, 'quiet-terminal.private.ehpk')], { cwd: stage, stdio: 'inherit' });
   } finally {
     rmSync(stage, { recursive: true, force: true });
   }

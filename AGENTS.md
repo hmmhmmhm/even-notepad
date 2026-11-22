@@ -1,4 +1,4 @@
-# Even Notepad agent instructions
+# Quiet Terminal agent instructions
 
 Read [ALIGNS.md](ALIGNS.md), [Architecture](docs/architecture.md), and [Development](docs/development.md) before relevant work. Respond in the user's preferred language.
 

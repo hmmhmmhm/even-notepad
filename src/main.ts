@@ -880,7 +880,10 @@ async function connect() {
         if (!ready || rebuilding || homeBusy || codexDialog.open || xDialog.open || required<HTMLDialogElement>('#documents').open || displayedLayout !== homeLayout() || (sourceName && sourceName !== captureName)) return;
         if (type === OsEventTypeList.SCROLL_TOP_EVENT) moveHome(-1);
         else if (type === OsEventTypeList.SCROLL_BOTTOM_EVENT) moveHome(1);
-        else if (type === OsEventTypeList.DOUBLE_CLICK_EVENT && computerPicker) { computerPicker = null; homeStatus = ''; void flush(); }
+        else if (type === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+          if (computerPicker) { computerPicker = null; homeStatus = ''; void flush(); }
+          else void bridge?.shutDownPageContainer(1).catch(error => console.error('Could not open glasses exit confirmation', error));
+        }
         else if ((type === undefined || type === OsEventTypeList.CLICK_EVENT) && !cancelPhoneTap.isPending?.()) void chooseHome();
         return;
       }
@@ -933,7 +936,7 @@ async function connect() {
 if (fixture) {
   const sample = new URLSearchParams(location.search).get('fixture');
   input.value = sample === 'pages' ? 'First line\nSecond line\nThird line\nFourth line\nFifth line\nSixth line\nSeventh line\nEighth line'
-    : sample === 'empty' ? '' : 'Hello Even Notepad\nOnly on your glasses.';
+    : sample === 'empty' ? '' : 'Hello Quiet Terminal\nOnly on your glasses.';
   input.dispatchEvent(new Event('input', { bubbles: true }));
   const caret = new URLSearchParams(location.search).get('caret');
   if (caret !== null && Number.isInteger(Number(caret))) input.setSelectionRange(Number(caret), Number(caret));

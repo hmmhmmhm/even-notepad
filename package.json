@@ -1,12 +1,12 @@
 {
-  "name": "even-notepad",
-  "version": "0.1.68",
+  "name": "quiet-terminal",
+  "version": "0.1.69",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "pack": "npm run build && evenhub pack app.json dist --sdk-ver 0.0.16 -o hidden-writer.ehpk",
+    "pack": "npm run build && evenhub pack app.json dist --sdk-ver 0.0.16 -o quiet-terminal.ehpk",
     "sim": "evenhub-simulator http://127.0.0.1:5173 --automation-port 9899",
     "typecheck": "tsc --noEmit",
     "pack:private": "node scripts/pack-private.mjs"

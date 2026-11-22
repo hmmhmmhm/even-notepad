@@ -7,7 +7,7 @@ test('startup menu reuses session row style, with title, logo and one event targ
   assert.equal(textObject.filter(x => x.isEventCapture).length, 1);
   assert.equal(textObject.find(x => x.isEventCapture).content, ' ');
   assert.equal(textObject.find(x => x.content === 'Editor').isEventCapture, 0);
-  assert.equal(textObject.find(x => x.content === 'Even Notepad').isEventCapture, 0);
+  assert.equal(textObject.find(x => x.content === 'Quiet Terminal').isEventCapture, 0);
   assert.equal(textObject.find(x => x.content === 'Editor').borderWidth, 0);
   assert.equal(textObject.find(x => x.content === 'Terminal').borderWidth, 1);
   assert.equal(textObject.find(x => x.content === 'X (Twitter)').borderWidth, 0);

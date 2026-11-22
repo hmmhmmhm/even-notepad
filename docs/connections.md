@@ -39,7 +39,7 @@ The public manifest contains no personal computer addresses. To make a private b
 { "terminalOrigins": ["https://computer.example"] }
 ```
 
-Replace the example with your server's exact origin, including its port when needed. Do not put tokens in this file. The file is ignored by Git. Run `npm run pack:private` to build an isolated copy with the additional origins in both the app bundle and manifest. The output is `even-notepad.private.ehpk`, which is also ignored by Git. The public `npm run pack` does not read the private configuration.
+Replace the example with your server's exact origin, including its port when needed. Do not put tokens in this file. The file is ignored by Git. Run `npm run pack:private` to build an isolated copy with the additional origins in both the app bundle and manifest. The output is `quiet-terminal.private.ehpk`, which is also ignored by Git. The public `npm run pack` creates `quiet-terminal.ehpk` and does not read the private configuration.
 
 ## Relay and privacy
 

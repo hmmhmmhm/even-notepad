@@ -1,10 +1,10 @@
 # Architecture
 
-Even Notepad is a Vite web application hosted by Even App. The phone renders a typewriter surface; the G2 display is controlled through the Even Hub SDK. The two views deliberately show different text in writing mode.
+Quiet Terminal is a Vite web application hosted by Even App. The phone renders a typewriter surface; the G2 display is controlled through the Even Hub SDK. The two views deliberately show different text in writing mode.
 
 ## Entry and navigation
 
-`src/main.ts` initializes the bridge, coordinates the active mode, and routes phone and glasses input. The startup menu offers Editor, Terminal, X, and News. Double-tap returns to the menu. Input and rendering behavior must be checked on physical hardware as well as the simulator.
+`src/main.ts` initializes the bridge, coordinates the active mode, and routes phone and glasses input. The startup menu offers Editor, Terminal, X, and News. Double-tap on the glasses returns to the menu from a feature or the computer picker. Double-tap on the startup menu opens the Even system exit confirmation. Input and rendering behavior must be checked on physical hardware as well as the simulator.
 
 ## Editor and documents
 

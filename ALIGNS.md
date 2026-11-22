@@ -1,8 +1,8 @@
-# Even Notepad project alignment
+# Quiet Terminal project alignment
 
 ## Direction
 
-Even Notepad is an Even Realities G2 companion application. It combines private writing, document management, an Even Terminal client, X timeline reading, and localized RSS news. The phone shows a typewriter scene while the glasses show the active text or information.
+Quiet Terminal is an Even Realities G2 companion application. It combines private writing, document management, an Even Terminal client, X timeline reading, and localized RSS news. The phone shows a typewriter scene while the glasses show the active text or information.
 
 ## Priorities
 
