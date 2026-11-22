@@ -48,7 +48,7 @@ export function createCodexClient({ fetcher = fetch, onStatus, onSession = () =>
   }
   async function request(path: string, options: RequestInit = {}): Promise<Record<string, unknown>> {
     let response;
-    try { response = await fetcher(base + path, { ...options, signal: options.signal || AbortSignal.timeout(10000), headers: { Authorization: 'Bearer ' + token, ...(options.body ? { 'Content-Type': 'application/json' } : {}) } }); }
+    try { response = await fetcher(base + path, { ...options, signal: options.signal || AbortSignal.timeout(path === '/api/prompt' && options.method === 'POST' ? 45000 : 10000), headers: { Authorization: 'Bearer ' + token, ...(options.body ? { 'Content-Type': 'application/json' } : {}) } }); }
     catch { throw new Error('Could not connect. Check the server address and connection.'); }
     if (!response.ok) {
       let detail = '';

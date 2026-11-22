@@ -312,3 +312,23 @@ test('reports the server payload limit without claiming a lost receipt', async (
   assert.equal(posts, 1);
   assert.equal(statuses.at(-1), 'Data too large · Draft kept');
 });
+
+test('waits longer for a prompt response without retrying the request', async () => {
+  const original = AbortSignal.timeout, durations = [], statuses = [];
+  let posts = 0;
+  AbortSignal.timeout = ms => { durations.push(ms); return new AbortController().signal; };
+  try {
+    const client = createCodexClient({ onStatus: status => statuses.push(status), fetcher: async url => {
+      if (url.endsWith('/api/prompt')) {
+        posts++;
+        return { ok: false, status: 500, json: async () => ({ error: 'Max payload size exceeded' }) };
+      }
+      return respond({ state: 'idle', messages: [] });
+    } });
+    await client.connect('http://localhost', 'token'); client.select('s');
+    assert.equal(await client.send('http://localhost', 'token', 'draft'), false);
+    assert.equal(posts, 1);
+    assert.equal(durations.at(-1), 45000);
+    assert.equal(statuses.at(-1), 'Data too large · Draft kept');
+  } finally { AbortSignal.timeout = original; }
+});
