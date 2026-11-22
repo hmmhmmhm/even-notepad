@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title></title>
+</head>
+<body>
+  <div class="stage">
+    <div class="machine">
+      <div class="paper-extension"></div>
+      <div class="paper-decoration">
+        <div class="paper-ribbon"></div>
+        <button class="clip-trigger" type="button" aria-label="Documents" aria-haspopup="dialog" aria-controls="documents"><svg class="paper-clip" viewBox="0 0 36 88" aria-hidden="true">
+          <defs>
+            <linearGradient id="clip-metal" x1="0" x2="1" y1="0" y2="0">
+              <stop stop-color="#624526"/><stop offset=".3" stop-color="#e2bb79"/><stop offset=".58" stop-color="#9b713f"/><stop offset="1" stop-color="#e9c88d"/>
+            </linearGradient>
+          </defs>
+          <path d="M25 61V19C25 1 5 1 5 19v50c0 19 26 19 26 0V20C31 5 11 5 11 20v43c0 10 14 10 14 0V24" fill="none" stroke="#24180f" stroke-width="5" stroke-linecap="round" opacity=".55" transform="translate(1 2)"/>
+          <path d="M25 61V19C25 1 5 1 5 19v50c0 19 26 19 26 0V20C31 5 11 5 11 20v43c0 10 14 10 14 0V24" fill="none" stroke="url(#clip-metal)" stroke-width="3" stroke-linecap="round"/>
+        </svg></button>
+      </div>
+      <div class="machine-art" aria-hidden="true">
+        <div class="print"></div>
+        <div class="carriage">
+          <div class="carriage-glow"></div>
+          <img class="carriage-base" src="/src/assets/stamp-base.webp" alt="">
+          <div class="striking-arm lower-arm">
+            <img src="/src/assets/stamp-link.webp" alt="">
+          </div>
+          <div class="striking-arm upper-arm">
+            <img src="/src/assets/stamp-link.webp" alt="">
+          </div>
+          <div class="arm-joint"><img src="/src/assets/stamp-sleeve.webp" alt=""></div>
+          <div class="striking-head">
+            <img src="/src/assets/stamp-head.webp" alt="">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="writer-surface"><textarea autofocus id="writer" aria-label="Enter text for glasses" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea></div>
+  <div id="glasses-connection-status" role="status" hidden>Glasses display is not responding. Reopen the app if this continues.</div>
+  <dialog id="documents" aria-labelledby="documents-title" lang="en">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <header class="sheet-header"><h1 id="documents-title">Documents</h1><button type="button" class="sheet-close" aria-label="Close documents" autofocus>×</button></header>
+    <div class="sheet-actions">
+      <button type="button" id="copy-document"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7H5V3h10v4M9 7h9l2 3v11H9z"/></svg>Copy text</button>
+      <button type="button" id="new-document"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 21H4V3h10l4 4v5M14 3v5h4"/><circle cx="17" cy="17" r="4"/><path d="M17 15v4m-2-2h4"/></svg>New document</button>
+      <button type="button" id="new-folder">New folder</button>
+      <button type="button" id="open-codex" lang="en"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m5 0h5"/></svg>Connect Even Terminal</button>
+      <button type="button" id="open-x" lang="en"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4 19 20M19 4 5 20"/></svg>Connect X (Twitter)</button>
+    </div>
+    <div class="document-recovery" hidden>
+      <label>Document copy
+        <select id="document-copy">
+          <option value="even">Even App</option>
+          <option value="device">Device recovery copy</option>
+        </select>
+      </label>
+    </div>
+    <p class="document-location"></p>
+    <div class="document-tree" aria-label="Files"></div>
+    <form class="document-form" aria-labelledby="document-action-title" hidden>
+      <h2 id="document-action-title"></h2>
+      <input type="text" aria-label="Name" autocomplete="off" autocapitalize="off" spellcheck="false" hidden>
+      <select aria-label="Destination folder" hidden></select>
+      <p class="document-detail"></p>
+      <div class="sheet-actions">
+        <button type="button" class="cancel-action">Cancel</button>
+        <button type="submit"></button>
+      </div>
+    </form>
+    <p class="document-feedback" role="status"></p>
+  </dialog>
+  <dialog id="x-dialog" aria-labelledby="x-title" lang="en">
+    <header><h1 id="x-title">Connect X (Twitter)</h1><button type="button" id="x-close" aria-label="Close">×</button></header>
+    <button type="button" class="open-connection-guide" data-guide="x"><span aria-hidden="true">ⓘ</span> X setup guide</button>
+    <p>Enter an OAuth 2.0 User Access Token with timeline read access.</p>
+    <form id="x-form">
+      <label>User access token <input id="x-access-token" type="password" autocomplete="off" required></label>
+      <p>Optional: add a public-client ID and refresh token to renew access automatically.</p>
+      <label>Client ID <input id="x-client-id" type="text" autocomplete="off"></label>
+      <label>Refresh token <input id="x-refresh-token" type="password" autocomplete="off"></label>
+      <div class="codex-actions"><button type="submit">Save connection</button><button type="button" id="x-remove">Remove connection</button></div>
+    </form>
+    <p>Tokens are stored in this device's app storage.</p>
+    <p id="x-status" role="status"></p>
+  </dialog>
+  <dialog id="codex-dialog" aria-labelledby="codex-title" lang="en">
+    <header><h1 id="codex-title">Connect Even Terminal</h1><button type="button" id="codex-close" aria-label="Close">×</button></header>
+    <button type="button" class="open-connection-guide" data-guide="terminal"><span aria-hidden="true">ⓘ</span> Terminal setup guide</button>
+    <div id="computer-list" aria-label="Saved computers"></div>
+    <button type="button" id="computer-add">＋ Add computer</button>
+    <div id="computer-form" hidden>
+      <label>Computer name <input id="computer-name" type="text" autocomplete="off" maxlength="60" placeholder="e.g. Office computer"></label>
+      <label>Server address <input id="codex-url" type="url" autocomplete="url" placeholder="http://server-address:3456"></label>
+      <label>Connection token <input id="codex-token" type="password" autocomplete="off"></label>
+      <div class="codex-actions"><button type="button" id="codex-connect">Save and connect</button><button type="button" id="computer-cancel">Cancel</button></div>
+      <p>The connection token is saved in this device’s app storage.</p>
+    </div>
+    <p id="codex-status" role="status">Select a computer.</p>
+  </dialog>
+  <dialog id="connection-guide" aria-labelledby="guide-title" lang="en">
+    <header><h1 id="guide-title"></h1><button type="button" id="guide-close" aria-label="Close setup guide">×</button></header>
+    <section id="guide-terminal" hidden>
+      <h2>1. Connect Tailscale</h2><p>Install <a href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Tailscale</a> on the phone and computer. Sign in to the same network.</p>
+      <h2>2. Start Even Terminal</h2><p>Install <a href="https://www.npmjs.com/package/@evenrealities/even-terminal" target="_blank" rel="noopener noreferrer">Even Terminal</a> and run these commands on the computer:</p><pre><code>npm install -g @evenrealities/even-terminal
+even-terminal --provider codex --tailscale --allow-cors</code></pre><p>Keep the server running. Use its connection token.</p>
+      <h2>3. Set up HTTPS</h2><p>Enable MagicDNS and HTTPS certificates in <a href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener noreferrer">Tailscale DNS settings</a>. Then run:</p><figure><img src="/guide/tailscale-https.webp" alt="Tailscale documentation showing the HTTPS setup steps"><figcaption>HTTPS setup in the Tailscale documentation</figcaption></figure><pre><code>tailscale serve --bg http://127.0.0.1:3456</code></pre><p>Enter the printed HTTPS address and connection token in the previous screen. This build allows only permitted server addresses. <a href="https://tailscale.com/docs/features/tailscale-serve" target="_blank" rel="noopener noreferrer">Tailscale Serve guide</a></p>
+    </section>
+    <section id="guide-x" hidden>
+      <h2>1. Open your app’s keys</h2><p>Open <a href="https://console.x.com/" target="_blank" rel="noopener noreferrer">X Developer Console</a>, select <strong>Apps</strong>, choose your app, then open <strong>Keys &amp; Tokens</strong>.</p>
+      <figure><img src="/guide/x-console-example.png" alt="Example of the X Keys and Tokens screen, showing the OAuth 2.0 Client ID and Access Token sections. Identifying values are hidden."><figcaption>Illustration based on an X console screenshot. Your language and layout may differ; identifying values are hidden.</figcaption></figure>
+      <h2>2. Copy the Client ID</h2><p>In the <strong>OAuth 2.0</strong> section, copy <strong>Client ID</strong>. Paste it into the Client ID field in Even Notepad. Do not copy Client Secret.</p>
+      <h2>3. Generate your user tokens</h2><p>In the same <strong>OAuth 2.0</strong> section, find <strong>Access Token</strong> and select <strong>Generate</strong>. Complete any authorization steps shown by X. Copy the resulting <strong>access token</strong> and <strong>refresh token</strong> into the matching fields in Even Notepad, then choose <strong>Save connection</strong>.</p>
+      <p>Use the OAuth 2.0 user tokens, not the app-only Bearer Token at the top or the OAuth 1.0a Access Token. Keep tokens private.</p>
+      <p>If token generation is unavailable, configure your X app for user authentication. A public client and the <code>tweet.read</code>, <code>users.read</code> and <code>offline.access</code> permissions are needed for this setup. Timeline access also depends on your X API plan.</p><p><a href="https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code" target="_blank" rel="noopener noreferrer">X OAuth guide</a> · <a href="https://docs.x.com/x-api/posts/timelines/introduction" target="_blank" rel="noopener noreferrer">Timeline access</a></p>
+    </section>
+  </dialog>
+  <div id="save-error" role="alert" hidden></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "name": "even-notepad",
+  "version": "0.1.68",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "pack": "npm run build && evenhub pack app.json dist --sdk-ver 0.0.16 -o hidden-writer.ehpk",
+    "sim": "evenhub-simulator http://127.0.0.1:5173 --automation-port 9899",
+    "typecheck": "tsc --noEmit",
+    "pack:private": "node scripts/pack-private.mjs"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "0.0.16",
+    "marked": "^15.0.12"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "0.2.0",
+    "@evenrealities/evenhub-simulator": "0.9.5",
+    "typescript": "^7.0.2",
+    "vite": "6.4.5"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "package_id": "com.hmmhmmhm.hiddenwriter",
+  "edition": "202601",
+  "name": "Even Notepad",
+  "version": "0.1.68",
+  "min_app_version": "2.2.10",
+  "min_sdk_version": "0.0.16",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Connect to your Even Terminal server, X timeline relay, and localized news service.",
+      "whitelist": [
+        "http://127.0.0.1:3456",
+        "https://sandevistan-x-relay.hmmhmmhm.workers.dev",
+        "https://sandevistan-api.hmmhmmhm.workers.dev"
+      ]
+    }
+  ],
+  "supported_languages": [
+    "en"
+  ]
+}
