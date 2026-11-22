@@ -127,7 +127,7 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
   function buildRows() { return ['＋ New session', ...menuSessions.map(s => {
     const record = records.get(s.id);
     return (record ? record.permission ? '? ' : record.client.active || record.externalBusy ? '· ' : '  ' : s.status === 'awaiting' ? '? ' : s.status === 'busy' ? '· ' : '  ') + (s.title || 'Codex session');
-  }), 'Back to notes']; }
+  }), 'Back to computers']; }
   function rows() { return menuItems; }
   function getMode(): Mode { return mode; }
   function draw() {
@@ -262,8 +262,14 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
     if (pendingDraft && (!pendingDraft.id || !records.has(pendingDraft.id))) { pendingDraft.unwatch?.(); pendingDraft.unwatch = null; stopClock(pendingDraft); }
     url = ''; token = ''; exit();
   }
+  function menu() { ++serial; replyMenu = undefined; menuSessions = sessions.slice(0, 18); menuItems = buildRows(); ++menuId; mode = 'menu'; index = 0; draw(); }
   return {
     leave,
+    back() {
+      if (replyMenu) { replyMenu = undefined; draw(); }
+      else if (mode === 'chat' || mode === 'permission') menu();
+      else if (mode === 'menu' && url) leave();
+    },
     async connect(address: string, secret: string) {
       const connection = ++connectionSerial;
       const nextAddress = address.trim(), nextToken = secret.trim();
@@ -305,7 +311,7 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
     },
     isOpen() { return !!url; },
     currentDraft() { return current?.draft || ''; },
-    menu() { ++serial; replyMenu = undefined; menuSessions = sessions.slice(0, 18); menuItems = buildRows(); ++menuId; mode = 'menu'; index = 0; draw(); },
+    menu,
     move(delta: number) { if (mode !== 'menu') return false; index = Math.max(0, Math.min(rows().length - 1, index + delta)); draw(); return true; },
     selectMenu(position: number) { if (mode !== 'menu' || !Number.isInteger(position) || position < 0 || position >= rows().length) return false; index = position; return true; },
     reportMenuError(message: string) { if (mode === 'menu') render({ mode, text: rows().join('\n'), items: rows(), selected: index, start: Math.max(0, index - 5), menuId, draft: '', status: message }); },

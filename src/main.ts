@@ -694,7 +694,7 @@ const terminal = createTerminalController({
   render(view) {
     const hadReplies = !!replyMenu;
     replyMenu = view.replies;
-    if (hadReplies !== !!replyMenu) resetMomentum();
+    if (hadReplies !== !!replyMenu) { resetMomentum(); cancelPhoneTap(); }
     const { mode, text, draft, status } = view;
     const messages = mode === 'menu' ? undefined : view.messages;
     const items = mode === 'menu' ? view.items : undefined;
@@ -718,7 +718,14 @@ const terminal = createTerminalController({
     void flush();
   },
   clearDraft(value) { if (codexView && input.value === value) input.value = ''; },
-  exit() { codexView = false; terminalMode = ''; replyMenu = undefined; document.documentElement.classList.remove('session-menu-active', 'terminal-touch-active'); restoreDocument(documents.current()); if (!home) input.focus({ preventScroll: true }); void flush(); },
+  exit() {
+    codexView = false; terminalMode = ''; replyMenu = undefined;
+    document.documentElement.classList.remove('session-menu-active', 'terminal-touch-active');
+    resetMomentum(); glassesScroll.reset(); cancelPhoneTap();
+    home = true; homeSelected = 1; homeStatus = '';
+    showComputerPicker(savedComputerChoices());
+    restoreDocument(documents.current());
+  },
 });
 function mountTerminalInput(value = '') {
   const next = input.cloneNode(false);
@@ -740,7 +747,7 @@ function mountTerminalInput(value = '') {
     if (terminalMode === 'menu' && (event.inputType === 'insertLineBreak' || event.inputType === 'insertParagraph') && !event.isComposing) { event.preventDefault(); enterMenu(); return; }
     if (terminalMode === 'chat' && (event.inputType === 'insertLineBreak' || event.inputType === 'insertParagraph') && !event.isComposing) { event.preventDefault(); submit(); }
   });
-  const saveDraft = terminal.captureDraft();
+  const saveDraft = terminalMode === 'menu' ? () => {} : terminal.captureDraft();
   const writerPending = watchWriterInput(next, (value, compositionRelated) => {
     if ((codexView && terminalMode === 'chat' && input === next) || (terminalLateEditor === next && compositionRelated)) saveDraft(value);
   }, (action, count) => { if (input === next && codexView) edit(action, count, claimKeyHold(action)); });
@@ -759,6 +766,17 @@ required<HTMLButtonElement>('#open-codex').onclick = async () => {
   try { await computers.load(); await renderComputers(); }
   catch (error) { codexStatus.textContent = error instanceof Error ? error.message : 'Connection failed.'; }
 };
+function savedComputerChoices() {
+  return computers.list().map(entry => ({ ...entry, allowed: allowedOrigins.includes(entry.url) }));
+}
+function showComputerPicker(entries: ComputerPicker['entries']) {
+  computerPicker = { id: ++nextPickerId, entries, selected: 0, status: '' };
+  homeStatus = ''; void flush();
+}
+function closeComputerPicker() {
+  if (!computerPicker || homeBusy) return;
+  computerPicker = null; homeStatus = ''; void flush();
+}
 function moveHome(delta: number) {
   if (!home || homeBusy) return;
   if (computerPicker) {
@@ -772,7 +790,7 @@ function moveHome(delta: number) {
 async function chooseHome() {
   if (!home || homeBusy || rebuilding || !ready || displayedLayout !== homeLayout()) return;
   if (computerPicker) {
-    if (computerPicker.selected === computerPicker.entries.length) { computerPicker = null; homeStatus = ''; void flush(); return; }
+    if (computerPicker.selected === computerPicker.entries.length) { closeComputerPicker(); return; }
     if (!allowedOrigins.includes(computerPicker.entries[computerPicker.selected].url)) {
       computerPicker.status = 'Address not permitted. Check phone.'; void flush(); return;
     }
@@ -812,12 +830,10 @@ async function chooseHome() {
   homeStatus = 'Connecting…'; void flush();
   try {
     await computers.load();
-    const entries = computers.list().map(entry => ({ ...entry, allowed: allowedOrigins.includes(entry.url) }));
-    if (entries.length === 1 && allowedOrigins.includes(entries[0].url)) await connectComputer(entries[0]);
-    else if (entries.length > 1) {
-      computerPicker = { id: ++nextPickerId, entries, selected: 0, status: '' };
-      homeStatus = ''; void flush();
-    } else {
+    const entries = savedComputerChoices();
+    if (entries.length === 1 && entries[0].allowed) await connectComputer(entries[0]);
+    else if (entries.length > 1) showComputerPicker(entries);
+    else {
       homeStatus = 'Choose a computer on phone.'; void flush();
       codexDialog.showModal(); await renderComputers();
     }
@@ -874,8 +890,13 @@ required<HTMLButtonElement>('#x-remove').onclick = async () => {
   catch { xStatusElement.textContent = 'Could not remove X connection.'; }
 };
 selectDocument(documents.current());
-function returnHome() {
-  if (home || returningHome || codexDialog.open || xDialog.open || required<HTMLDialogElement>('#documents').open) return;
+function workspaceDialogOpen() {
+  return codexDialog.open || xDialog.open || required<HTMLDialogElement>('#documents').open;
+}
+function goBack() {
+  if (workspaceDialogOpen() || returningHome) return;
+  if (home) { closeComputerPicker(); return; }
+  if (codexView && (replyMenu || terminalMode === 'menu')) { terminal.back(); return; }
   returningHome = true;
   const editor = input;
   const fromTerminal = codexView;
@@ -889,11 +910,20 @@ function returnHome() {
   backAfterInput(editor, pendingInput, () => {
     if (input !== editor || home) { returningHome = false; return; }
     resetMomentum(); glassesScroll.reset(); cancelPhoneTap();
-    homeSelected = fromTerminal ? 1 : fromX ? 2 : fromNews ? 3 : 0;
-    if (!fromTerminal && !fromX && !fromNews) notePosition = first;
+    if (fromTerminal) {
+      const wasFocused = document.activeElement === editor;
+      terminal.back();
+      if (terminalMode === 'menu') {
+        mountTerminalInput();
+        if (wasFocused) input.focus({ preventScroll: true });
+      }
+      returningHome = false;
+      return;
+    }
+    homeSelected = fromX ? 2 : fromNews ? 3 : 0;
+    if (!fromX && !fromNews) notePosition = first;
     homeStatus = ''; home = true;
-    if (fromTerminal) terminal.leave();
-    else if (fromX) { xView = false; ++xGeneration; xLoading = false; xPosts = []; xNext = null; clearXImages(); input.readOnly = true; void flush(); }
+    if (fromX) { xView = false; ++xGeneration; xLoading = false; xPosts = []; xNext = null; clearXImages(); input.readOnly = true; void flush(); }
     else if (fromNews) { newsView = false; news.close(); input.readOnly = true; void flush(); }
     else { input.blur(); input.readOnly = true; void flush(); }
     returningHome = false;
@@ -908,7 +938,7 @@ cancelPhoneTap = watchPhoneMenuTouch(window, {
   move: delta => scrollOnPhone(delta),
   choose: () => { if (home) void chooseHome(); else void chooseSession(); },
   onTap: event => { if (event.target !== input && !home && !xView && !newsView) input.focus({ preventScroll: true }); },
-  back: () => { if (home && computerPicker && !homeBusy) { computerPicker = null; homeStatus = ''; void flush(); } else returnHome(); },
+  back: goBack,
 });
 window.addEventListener('wheel', event => {
   if (!codexDialog.open && !xDialog.open && !required<HTMLDialogElement>('#documents').open && isWorkspaceTarget(event.target instanceof Node ? event.target : null, input) && Math.abs(event.deltaY) > 0) {
@@ -934,7 +964,7 @@ async function connect() {
         if (type === OsEventTypeList.SCROLL_TOP_EVENT) moveHome(-1);
         else if (type === OsEventTypeList.SCROLL_BOTTOM_EVENT) moveHome(1);
         else if (type === OsEventTypeList.DOUBLE_CLICK_EVENT) {
-          if (computerPicker) { computerPicker = null; homeStatus = ''; void flush(); }
+          if (computerPicker) goBack();
           else void bridge?.shutDownPageContainer(1).catch(error => console.error('Could not open glasses exit confirmation', error));
         }
         else if ((type === undefined || type === OsEventTypeList.CLICK_EVENT) && !cancelPhoneTap.isPending?.()) void chooseHome();
@@ -949,7 +979,7 @@ async function connect() {
         if (!glassesActive) return;
         if (type === OsEventTypeList.SCROLL_TOP_EVENT) terminal.moveReplies(-1);
         else if (type === OsEventTypeList.SCROLL_BOTTOM_EVENT) terminal.moveReplies(1);
-        else if (type === OsEventTypeList.DOUBLE_CLICK_EVENT) terminal.closeReplies();
+        else if (type === OsEventTypeList.DOUBLE_CLICK_EVENT) goBack();
         else if (type === OsEventTypeList.CLICK_EVENT || (type === undefined && (ownSource || event.sysEvent))) void terminal.chooseReply();
         return;
       }
@@ -959,7 +989,11 @@ async function connect() {
       if (newsView && (rebuilding || displayedLayout !== 'news' || xDialog.open || codexDialog.open || required<HTMLDialogElement>('#documents').open || (sourceName && sourceName !== 'news-frame'))) return;
       if (!glassesActive && sourceName && ((terminalMode === 'menu' && (sourceName === 'session-list-' + sessionMenu?.menuId || sourceName === 'pm-' + sessionMenu?.menuId)) || (terminalMode === 'chat' && sourceName === 'terminal-frame') || (xView && sourceName === 'x-frame') || (newsView && sourceName === 'news-frame') || (!codexView && !xView && !newsView && sourceName === 'terminal-frame'))) glassesActive = true;
       const interactive = ready && glassesActive;
-      if (interactive && type === OsEventTypeList.DOUBLE_CLICK_EVENT) { returnHome(); return; }
+      if (interactive && type === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+        const terminalLayout = terminalMode === 'menu' ? menuLayout() : terminalMode === 'chat' ? 'chat' : 'terminal';
+        if (!codexView || (!rebuilding && displayedLayout === terminalLayout)) goBack();
+        return;
+      }
       if (interactive && xView && (type === undefined || type === OsEventTypeList.CLICK_EVENT) && !xLoading) { void loadXPage(xPosts.length === 0 || !xFailed); return; }
       if (interactive && newsView && (type === undefined || type === OsEventTypeList.CLICK_EVENT) && news.current().status !== 'loading') { void news.refresh({ force: true }); return; }
       if (interactive && codexView && type === OsEventTypeList.LONG_PRESS_EVENT) {

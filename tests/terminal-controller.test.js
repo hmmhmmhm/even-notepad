@@ -32,7 +32,7 @@ test('a connection finishing after leaving does not reopen the terminal', async 
   assert.equal(views.length, 0);
 });
 
-test('lists sessions, opens history, and changes sessions without stopping an active reply', async () => {
+test('backs out of a running session and switches sessions while its reply completes', async () => {
   const views = [], clients = [];
   let finish;
   const makeClient = hooks => {
@@ -45,7 +45,11 @@ test('lists sessions, opens history, and changes sessions without stopping an ac
   controller.move(1); await controller.choose();
   assert.match(views.at(-1).text, /History a/);
   controller.setDraft('hello'); const pending = controller.send();
-  controller.menu(); controller.move(2); await controller.choose();
+  controller.back();
+  assert.equal(views.at(-1).mode, 'menu');
+  assert.equal(controller.isOpen(), true);
+  assert.equal(clients[1].active, true);
+  controller.move(2); await controller.choose();
   assert.match(views.at(-1).text, /History b/);
   finish(); await pending;
   assert.doesNotMatch(views.at(-1).text, /Finished hello/);
@@ -373,4 +377,46 @@ test('a helper creation with an unconfirmed receipt is not repeated after restar
     t.leave();
   }
   assert.equal(posts, 1);
+});
+
+test('back from replies, permission and the session list returns one level at a time', async () => {
+  const views = [];
+  let exits = 0, unwatch = 0, interrupts = 0, observe;
+  const terminal = createTerminalController({
+    render: view => views.push(view),
+    exit: () => exits++,
+    replyStorage: { async read() { return ''; }, async write() {} },
+    makeClient: () => ({
+      async connect() { return [{ id: 'working', title: 'Working session', status: 'busy' }]; },
+      select() {},
+      async history() { return []; },
+      watch(_id, consume) { observe = consume; return () => unwatch++; },
+      async interruptSession() { interrupts++; },
+    }),
+  });
+  await terminal.connect('http://example', 'token');
+  terminal.move(1); await terminal.choose();
+  terminal.setDraft('Keep my draft');
+  observe([{ type: 'permission_request', description: 'Run command' }], 'awaiting');
+  void terminal.openReplies();
+
+  terminal.back();
+  assert.equal(views.at(-1).replies, undefined);
+  assert.equal(views.at(-1).mode, 'permission');
+  terminal.back();
+  assert.equal(views.at(-1).mode, 'menu');
+  assert.match(views.at(-1).text, /\? Working session/);
+  assert.equal(terminal.isOpen(), true);
+  assert.equal(unwatch, 0);
+  assert.equal(exits, 0);
+
+  terminal.move(1); await terminal.choose();
+  assert.equal(views.at(-1).mode, 'permission');
+  observe([{ type: 'permission_result' }], 'busy');
+  assert.equal(views.at(-1).draft, 'Keep my draft');
+  terminal.back();
+  terminal.back();
+  assert.equal(exits, 1);
+  assert.equal(unwatch, 1);
+  assert.equal(interrupts, 0);
 });
