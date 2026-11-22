@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "build": "vite build --mode public",
     "pack": "npm run build && evenhub pack app.json dist --sdk-ver 0.0.16 -o quiet-terminal.ehpk",
     "sim": "evenhub-simulator http://127.0.0.1:5173 --automation-port 9899",
     "typecheck": "tsc --noEmit",

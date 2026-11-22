@@ -25,7 +25,7 @@ Write on your phone and see your words on your glasses. Stay connected to your t
 | --- | --- |
 | **Editor** | Write on your phone while the glasses show your text, cursor, file name, and counts. The phone displays a separate typewriter scene. |
 | **Documents** | Create, rename, move, and delete documents and folders from the paper clip menu. |
-| **Even Terminal** | Choose a session on the glasses, send prompts from the phone, and scroll through the conversation. |
+| **Even Terminal** | Available in a [personal build](docs/connections.md#private-terminal-build); not supported in the public build. |
 | **X (Twitter)** | Read your timeline on the glasses using your own X credentials. |
 | **News** | Browse RSS news with sources selected for the phone language. |
 

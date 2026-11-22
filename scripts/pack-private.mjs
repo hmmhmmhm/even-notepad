@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const DEFAULT_PRIVATE_TERMINAL_ORIGINS = ['http://127.0.0.1:3456'];
 
 export function mergeTerminalOrigins(manifest, config) {
   if (!config || !Array.isArray(config.terminalOrigins) || !config.terminalOrigins.every(value => typeof value === 'string')) {
@@ -21,7 +22,8 @@ export function mergeTerminalOrigins(manifest, config) {
   const result = structuredClone(manifest);
   const network = result.permissions?.find(permission => permission.name === 'network');
   if (!network || !Array.isArray(network.whitelist)) throw new Error('Missing network permission.');
-  network.whitelist = [...new Set([...network.whitelist, ...origins])];
+  network.desc = 'Connect to your Even Terminal server, X timeline relay, and localized news service.';
+  network.whitelist = [...new Set([...network.whitelist, ...DEFAULT_PRIVATE_TERMINAL_ORIGINS, ...origins])];
   return result;
 }
 
@@ -41,8 +43,9 @@ function main() {
     for (const path of ['src', 'public', 'index.html', 'package.json']) cpSync(join(root, path), join(stage, path), { recursive: true });
     writeFileSync(join(stage, 'app.json'), JSON.stringify(manifest, null, 2) + '\n');
     symlinkSync(join(root, 'node_modules'), join(stage, 'node_modules'), 'dir');
-    execFileSync(process.execPath, [join(root, 'node_modules/vite/bin/vite.js'), 'build'], { cwd: stage, stdio: 'inherit' });
+    execFileSync(process.execPath, [join(root, 'node_modules/vite/bin/vite.js'), 'build', '--mode', 'private'], { cwd: stage, stdio: 'inherit' });
     const bundles = readdirSync(join(stage, 'dist', 'assets')).filter(name => name.endsWith('.js')).map(name => readFileSync(join(stage, 'dist', 'assets', name), 'utf8'));
+    if (!bundles.some(bundle => bundle.includes(DEFAULT_PRIVATE_TERMINAL_ORIGINS[0]))) throw new Error('Default private terminal origin missing from application bundle.');
     for (const origin of config.terminalOrigins) {
       if (!bundles.some(bundle => bundle.includes(origin))) throw new Error('Private origin missing from application bundle.');
     }

@@ -9,9 +9,8 @@
   "permissions": [
     {
       "name": "network",
-      "desc": "Connect to your Even Terminal server, X timeline relay, and localized news service.",
+      "desc": "Connect to the X timeline relay and localized news service.",
       "whitelist": [
-        "http://127.0.0.1:3456",
         "https://sandevistan-x-relay.hmmhmmhm.workers.dev",
         "https://sandevistan-api.hmmhmmhm.workers.dev"
       ]

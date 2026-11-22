@@ -2,6 +2,8 @@
 
 ## Even Terminal and Tailscale
 
+Terminal connections are not supported in the public build. First create a [personal build](#private-terminal-build) that permits your server address, then follow these steps.
+
 1. Install [Tailscale](https://tailscale.com/download) on your computer and phone. Sign in to the same tailnet on both devices.
 2. Install Node.js and the [official Even Terminal server](https://www.npmjs.com/package/@evenrealities/even-terminal). On the computer, run:
 
@@ -20,7 +22,7 @@
    Use the HTTPS address printed by Tailscale. The default server port is 3456; use your configured port if different. See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve).
 4. On the phone, open the paper clip → **Connect Even Terminal** → **Add computer**. Enter a name, the server address, and the connection token. Select **Terminal** on the glasses.
 
-The public build permits only addresses listed in [app.json](../app.json). A different computer address requires a new build with that origin; wildcard support is not verified. `--allow-cors` permits cross-origin requests, so keep the server on a trusted tailnet and protect its token. The Even App storage used for tokens is not documented as encrypted credential storage.
+Personal builds permit only addresses listed in their packaged manifest; wildcard support is not verified. `--allow-cors` permits cross-origin requests, so keep the server on a trusted tailnet and protect its token. The Even App storage used for tokens is not documented as encrypted credential storage.
 
 ## X (Twitter)
 
@@ -39,7 +41,7 @@ The public manifest contains no personal computer addresses. To make a private b
 { "terminalOrigins": ["https://computer.example"] }
 ```
 
-Replace the example with your server's exact origin, including its port when needed. Do not put tokens in this file. The file is ignored by Git. Run `npm run pack:private` to build an isolated copy with the additional origins in both the app bundle and manifest. The output is `quiet-terminal.private.ehpk`, which is also ignored by Git. The public `npm run pack` creates `quiet-terminal.ehpk` and does not read the private configuration.
+Replace the example with your server's exact origin, including its port when needed. Do not put tokens in this file. The file is ignored by Git. Run `npm run pack:private` to build an isolated copy with terminal enabled and the additional origins in both the app bundle and manifest. The output is `quiet-terminal.private.ehpk`, which is also ignored by Git. The public `npm run pack` creates `quiet-terminal.ehpk`, does not read the private configuration, and does not support terminal connections.
 
 ## Relay and privacy
 

@@ -28,6 +28,7 @@ import { installXFixture } from './dev-x-fixture.ts';
 import { loadNews, resolveLocale } from './news/news-service.ts';
 import { createNewsController } from './news/news-controller.ts';
 import { newsLayout, createNewsFrame, sendNewsFrame } from './news-display.ts';
+import { configurePublicTerminalDialog } from './terminal-public-notice.ts';
 
 declare global { interface Window { flutter_inappwebview?: { callHandler: (...args: unknown[]) => unknown } } }
 function required<T extends HTMLElement>(selector: string): T {
@@ -40,6 +41,7 @@ const surface = required<HTMLElement>('#writer-surface');
 let input = required<HTMLTextAreaElement>('#writer');
 const hasEvenHost = () => typeof window.flutter_inappwebview?.callHandler === 'function';
 const fixture = import.meta.env.DEV && new URLSearchParams(location.search).has('fixture');
+const terminalEnabled = import.meta.env.MODE === 'private' || import.meta.env.DEV;
 const fixtureComputers = fixture && new URLSearchParams(location.search).get('fixture') === 'computers' ? installComputerFixture() : null;
 const fixtureX = fixture && new URLSearchParams(location.search).get('fixture') === 'x' ? installXFixture() : null;
 const reportEdit = mountTypewriterDebug(surface, version, new URL(import.meta.url).pathname.split('/').at(-1) ?? '');
@@ -258,7 +260,7 @@ async function flush() {
           displayedLayout = wanted; sent.clear(); continue;
         }
         if (wanted.startsWith('home:')) {
-          const layout = startupLayout(homeSelected, homeStatus);
+          const layout = startupLayout(homeSelected, homeStatus, terminalEnabled);
           rebuilding = true;
           try {
             const rebuilt = await bridgeWrite(() => host.rebuildPageContainer(pageContainer({ containerTotalNum: layout.textObject.length + layout.imageObject.length, ...layout })));
@@ -487,6 +489,13 @@ async function chooseSession({ requireRendered = true } = {}) {
 }
 const computerForm = required<HTMLElement>('#computer-form');
 const computerList = required<HTMLElement>('#computer-list');
+const terminalSetupGuide = required<HTMLButtonElement>('.open-connection-guide[data-guide="terminal"]');
+function showTerminalPublicNotice() {
+  configurePublicTerminalDialog({ computerList, addComputer: required<HTMLButtonElement>('#computer-add'), computerForm, setupGuide: terminalSetupGuide, status: codexStatus }, document);
+}
+if (!terminalEnabled) {
+  showTerminalPublicNotice();
+}
 const allowedOrigins = permissions.find(p => p.name === 'network')?.whitelist || [];
 let xStorageQueue = Promise.resolve();
 let xSettingsVersion = 0;
@@ -628,6 +637,10 @@ async function renderComputers() {
   if (!computerList.children.length) computerList.textContent = 'No saved computers.';
 }
 async function connectComputer(entry: ComputerEntry, button?: HTMLButtonElement, { fromPicker = false } = {}) {
+  if (!terminalEnabled) {
+    showTerminalPublicNotice();
+    return;
+  }
   if (computerBusy) return;
   const fromHome = home;
   computerBusy = true;
@@ -707,6 +720,10 @@ required<HTMLButtonElement>('#open-codex').onclick = async () => {
   required<HTMLDialogElement>('#documents').close();
   input.blur();
   codexDialog.showModal();
+  if (!terminalEnabled) {
+    showTerminalPublicNotice();
+    return;
+  }
   try { await computers.load(); await renderComputers(); }
   catch (error) { codexStatus.textContent = error instanceof Error ? error.message : 'Connection failed.'; }
 };
@@ -737,6 +754,10 @@ async function chooseHome() {
     if (input !== noteInput) selectDocument(documents.current());
     lines = editorCursor(writerText, noteCursor).lines; first = scrollPosition(lines, notePosition, 0, lineCount());
     input.readOnly = !documents.canEdit(); input.focus({ preventScroll: true }); void flush(); return;
+  }
+  if (homeSelected === 1 && !terminalEnabled) {
+    homeStatus = 'Terminal is not supported in the public build. See the personal build guide: github.com/hmmhmmhm/quiet-terminal';
+    void flush(); return;
   }
   if (homeSelected === 2) {
     homeBusy = true; homeStatus = 'Loading X settings…'; void flush();
@@ -924,7 +945,7 @@ async function connect() {
           resetMomentum();
       }
     });
-    const initial = startupLayout(homeSelected, homeStatus);
+    const initial = startupLayout(homeSelected, homeStatus, terminalEnabled);
     const result = await bridge.createStartUpPageContainer(new CreateStartUpPageContainer(pageContainer({ containerTotalNum: initial.textObject.length + initial.imageObject.length, ...initial })));
     if (result === StartUpPageCreateResult.success) {
       await sendHomeLogoSafely();
