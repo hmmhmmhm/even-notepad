@@ -10,6 +10,7 @@ import { version, permissions } from '../app.json';
 import { mountTypewriterDebug } from './typewriter-debug.ts';
 import { mountTypewriter } from './typewriter.ts';
 import { watchKeyboardHold } from './keyboard-hold.ts';
+import { createGlassesActivity } from './glasses-activity.ts';
 import { createGlassesScroll } from './glasses-scroll.ts';
 import { createTerminalController } from './terminal-controller.ts';
 import { createTerminalSessionList } from './terminal-session-list.ts';
@@ -61,7 +62,7 @@ let first = 0;
 let retry: ReturnType<typeof setTimeout> | undefined;
 const sent = new Map();
 const glassesScroll = createGlassesScroll();
-let glassesActive = true;
+const glassesActivity = createGlassesActivity();
 let codexView = false;
 let xView = false;
 let newsView = false, newsIndex = 0, newsPage = 0, newsPages = 1, newsRevision = 0;
@@ -230,13 +231,14 @@ function editorFrame() {
     { xPosition: 17, yPosition: 212, width: 538, height: 42, borderWidth: 1, borderColor: 3, borderRadius: 7, paddingLength: 4, textColor: 3, ...state[6], isEventCapture: 0 },
   ];
 }
+const glassesLayout = () => home ? homeLayout() : xView ? 'x' : newsView ? 'news' : codexView ? replyMenu ? replyLayout() : terminalMode === 'menu' ? menuLayout() : terminalMode === 'chat' ? 'chat' : 'terminal' : 'note';
 async function flush() {
   const host = bridge;
   if (!ready || !host || pending) return;
   pending = true;
   try {
     for (;;) {
-      const wanted = home ? homeLayout() : xView ? 'x' : newsView ? 'news' : codexView ? replyMenu ? replyLayout() : terminalMode === 'menu' ? menuLayout() : terminalMode === 'chat' ? 'chat' : 'terminal' : 'note';
+      const wanted = glassesLayout();
       if (displayedLayout !== wanted) {
         if (wanted === 'x') {
           rebuilding = true;
@@ -366,7 +368,7 @@ function scheduleNoteCursor() {
 }
 document.addEventListener('selectionchange', () => { if (!codexView && document.activeElement === input) scheduleNoteCursor(); });
 setInterval(() => {
-  if (!ready || codexView || xView || newsView || !glassesActive || document.hidden || document.activeElement !== input || input.readOnly || input.value !== writerText) return;
+  if (!ready || codexView || xView || newsView || !glassesActivity.isActive() || document.hidden || document.activeElement !== input || input.readOnly || input.value !== writerText) return;
   const row = editorCursor(writerText, noteCursor).row;
   if (row < first || row >= first + lineCount()) return;
   noteCursorVisible = !noteCursorVisible;
@@ -992,19 +994,33 @@ async function connect() {
     const documentRecovery = documents.connect(bridge).catch(error => console.error('Document recovery failed', error));
     bridge.onEvenHubEvent(event => {
       const type = event.textEvent?.eventType ?? event.listEvent?.eventType ?? event.sysEvent?.eventType;
-      reportEdit.trace('glasses event ' + (type ?? '?') + ' ' + terminalMode);
-      if (type === OsEventTypeList.FOREGROUND_EXIT_EVENT || type === OsEventTypeList.ABNORMAL_EXIT_EVENT || type === OsEventTypeList.SYSTEM_EXIT_EVENT) { glassesActive = false; glassesScroll.reset(); resetMomentum(); return; }
-      if (type === OsEventTypeList.FOREGROUND_ENTER_EVENT) { glassesActive = true; glassesScroll.reset(); resetMomentum(); void flush(); return; }
       const sourceName = event.textEvent?.containerName || event.listEvent?.containerName;
+      reportEdit.trace('glasses event ' + (type ?? '?') + ' ' + terminalMode +
+        ' · ' + (sourceName ? 'capture' : 'system ' + (event.sysEvent?.eventSource ?? '?')) +
+        ' · ' + (glassesActivity.isActive() ? 'active' : 'inactive'));
+      if (glassesActivity.lifecycle(type)) {
+        glassesScroll.reset(); resetMomentum();
+        if (glassesActivity.isActive()) void flush();
+        return;
+      }
+      const captureName = home ? computerPicker ? 'pm-c' + computerPicker.id : 'pm-home'
+        : xView ? 'x-frame' : newsView ? 'news-frame'
+        : codexView && replyMenu ? 'pm-' + replyMenu.menuId
+        : codexView && terminalMode === 'menu' ? (phoneMenu ? 'pm-' : 'session-list-') + sessionMenu?.menuId
+        : codexView && terminalMode === 'permission' ? 'writer' : 'terminal-frame';
+      if (type === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+        if (!ready || rebuilding || workspaceDialogOpen() || displayedLayout !== glassesLayout() || (home && homeBusy)) return;
+        if (sourceName && sourceName !== captureName) return;
+        if (event.listEvent && (!codexView || terminalMode !== 'menu' || phoneMenu || replyMenu || sourceName !== captureName)) return;
+        if (!glassesActivity.acceptGesture(event, sourceName === captureName)) return;
+        if (home && !computerPicker) void bridge?.shutDownPageContainer(1).catch(error => console.error('Could not open glasses exit confirmation', error));
+        else goBack();
+        return;
+      }
       if (home) {
-        const captureName = computerPicker ? 'pm-c' + computerPicker.id : 'pm-home';
         if (!ready || rebuilding || homeBusy || codexDialog.open || xDialog.open || required<HTMLDialogElement>('#documents').open || displayedLayout !== homeLayout() || (sourceName && sourceName !== captureName)) return;
         if (type === OsEventTypeList.SCROLL_TOP_EVENT) moveHome(-1);
         else if (type === OsEventTypeList.SCROLL_BOTTOM_EVENT) moveHome(1);
-        else if (type === OsEventTypeList.DOUBLE_CLICK_EVENT) {
-          if (computerPicker) goBack();
-          else void bridge?.shutDownPageContainer(1).catch(error => console.error('Could not open glasses exit confirmation', error));
-        }
         else if ((type === undefined || type === OsEventTypeList.CLICK_EVENT) && !cancelPhoneTap.isPending?.()) void chooseHome();
         return;
       }
@@ -1013,11 +1029,9 @@ async function connect() {
       if (codexView && replyMenu) {
         const ownSource = sourceName === 'pm-' + replyMenu.menuId;
         if (!ready || rebuilding || displayedLayout !== replyLayout() || (sourceName && !ownSource) || event.listEvent) return;
-        if (ownSource) glassesActive = true;
-        if (!glassesActive) return;
+        if (!glassesActivity.acceptGesture(event, ownSource)) return;
         if (type === OsEventTypeList.SCROLL_TOP_EVENT) terminal.moveReplies(-1);
         else if (type === OsEventTypeList.SCROLL_BOTTOM_EVENT) terminal.moveReplies(1);
-        else if (type === OsEventTypeList.DOUBLE_CLICK_EVENT) goBack();
         else if (type === OsEventTypeList.CLICK_EVENT || (type === undefined && (ownSource || event.sysEvent))) void terminal.chooseReply();
         return;
       }
@@ -1025,13 +1039,7 @@ async function connect() {
       if (sourceName?.startsWith('pm-r') && codexView) return;
       if (xView && (rebuilding || displayedLayout !== 'x' || xDialog.open || codexDialog.open || required<HTMLDialogElement>('#documents').open || (sourceName && sourceName !== 'x-frame'))) return;
       if (newsView && (rebuilding || displayedLayout !== 'news' || xDialog.open || codexDialog.open || required<HTMLDialogElement>('#documents').open || (sourceName && sourceName !== 'news-frame'))) return;
-      if (!glassesActive && sourceName && ((terminalMode === 'menu' && (sourceName === 'session-list-' + sessionMenu?.menuId || sourceName === 'pm-' + sessionMenu?.menuId)) || (terminalMode === 'chat' && sourceName === 'terminal-frame') || (terminalMode === 'permission' && sourceName === 'writer') || (xView && sourceName === 'x-frame') || (newsView && sourceName === 'news-frame') || (!codexView && !xView && !newsView && sourceName === 'terminal-frame'))) glassesActive = true;
-      const interactive = ready && glassesActive;
-      if (interactive && type === OsEventTypeList.DOUBLE_CLICK_EVENT) {
-        const terminalLayout = terminalMode === 'menu' ? menuLayout() : terminalMode === 'chat' ? 'chat' : 'terminal';
-        if (!codexView || (!rebuilding && displayedLayout === terminalLayout)) goBack();
-        return;
-      }
+      const interactive = ready && glassesActivity.acceptGesture(event, sourceName === captureName);
       if (interactive && xView && (type === undefined || type === OsEventTypeList.CLICK_EVENT) && !xLoading) { void loadXPage(xPosts.length === 0 || !xFailed); return; }
       if (interactive && newsView && (type === undefined || type === OsEventTypeList.CLICK_EVENT) && news.current().status !== 'loading') { void news.refresh({ force: true }); return; }
       if (interactive && codexView && type === OsEventTypeList.LONG_PRESS_EVENT) {
@@ -1058,7 +1066,7 @@ async function connect() {
       switch (type) {
         case OsEventTypeList.SCROLL_TOP_EVENT:
         case OsEventTypeList.SCROLL_BOTTOM_EVENT: {
-          if (!ready || !glassesActive) return;
+          if (!interactive) return;
           const direction = type === OsEventTypeList.SCROLL_TOP_EVENT ? -1 : 1;
           scrollGlasses(direction);
           return;
