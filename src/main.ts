@@ -92,6 +92,8 @@ let terminalStatus = '';
 let displayedLayout = 'home:0:';
 type SessionMenu = { items: string[]; selected: number; start: number; menuId: number };
 let sessionMenu: SessionMenu | null = null;
+let replyMenu: { items: string[]; selected: number; start: number; menuId: string; status: string } | undefined;
+const replyLayout = () => 'replies:' + replyMenu?.menuId + ':' + replyMenu?.selected;
 let phoneMenu = false;
 let styledLines: ReturnType<typeof terminalLines> = [];
 const glassesStatus = required<HTMLElement>('#glasses-connection-status');
@@ -137,7 +139,7 @@ const statusMeasure = document.createElement('canvas').getContext('2d');
 if (statusMeasure) statusMeasure.font = '20px sans-serif';
 const inputWidth = (text: string) => statusMeasure ? statusMeasure.measureText(text).width : graphemes(text).length * 11;
 function inputLine() {
-  let label = (terminalStatus || 'Ready').replace(/ · Hold to stop$/, '');
+  let label = (terminalStatus || 'Ready').replace(/ · Hold for replies$/, '');
   if (label.includes('Draft kept')) label = label.startsWith('Session in use') ? 'In use · kept' : label.startsWith('Session busy') ? 'Busy · kept' : 'Draft kept';
   if (label === 'Requesting stop…') label = 'Stopping…';
   const status = graphemes(label);
@@ -197,6 +199,7 @@ function menuLabel(value: string) {
 
 function currentState() {
   if (home) return [];
+  if (codexView && replyMenu) return [{ containerID: 4, containerName: 'terminal-status', content: replyMenu.status || ' ' }];
   const view = viewport(lines, first, lineCount());
   if (codexView && terminalMode === 'menu') return [{ containerID: 4, containerName: 'terminal-status', content: terminalStatus || ' ' }];
   const caret = !codexView ? editorCursor(writerText, noteCursor) : null;
@@ -234,7 +237,7 @@ async function flush() {
   pending = true;
   try {
     for (;;) {
-      const wanted = home ? homeLayout() : xView ? 'x' : newsView ? 'news' : codexView ? terminalMode === 'menu' ? menuLayout() : terminalMode === 'chat' ? 'chat' : 'terminal' : 'note';
+      const wanted = home ? homeLayout() : xView ? 'x' : newsView ? 'news' : codexView ? replyMenu ? replyLayout() : terminalMode === 'menu' ? menuLayout() : terminalMode === 'chat' ? 'chat' : 'terminal' : 'note';
       if (displayedLayout !== wanted) {
         if (wanted === 'x') {
           rebuilding = true;
@@ -269,6 +272,15 @@ async function flush() {
             await sendHomeLogoSafely();
           } finally { rebuilding = false; }
           continue;
+        }
+        if (wanted.startsWith('replies:') && replyMenu) {
+          const textObject = terminalMenuLayout(replyMenu, menuLabel, replyMenu.status);
+          rebuilding = true;
+          let rebuilt;
+          try { rebuilt = await bridgeWrite(() => host.rebuildPageContainer(pageContainer({ containerTotalNum: textObject.length, textObject }))); }
+          finally { rebuilding = false; }
+          if (!rebuilt) throw Error('Reply menu layout rejected');
+          displayedLayout = wanted; sent.clear(); continue;
         }
         const isMenu = wanted.startsWith('menu:');
         const isPhoneMenu = wanted.startsWith('phone-menu:');
@@ -661,8 +673,28 @@ async function connectComputer(entry: ComputerEntry, button?: HTMLButtonElement,
   }
   finally { computerBusy = false; if (button) button.disabled = false; }
 }
+const replyStorageKey = fixture ? 'terminal-reply-helpers-fixture-v1' : 'terminal-reply-helpers-v1';
 const terminal = createTerminalController({
+  replyStorage: terminalEnabled ? {
+    async read() {
+      let cached: string | null = null;
+      try { cached = localStorage.getItem(replyStorageKey); } catch { /* Try host storage. */ }
+      if (cached !== null) return cached;
+      if (bridge) return await bridge.getLocalStorage(replyStorageKey);
+      if (fixture) return '';
+      throw Error('App storage is not ready.');
+    },
+    async write(value) {
+      let saved = false;
+      try { localStorage.setItem(replyStorageKey, value); saved = true; } catch { /* Try host storage. */ }
+      try { if (bridge && await bridge.setLocalStorage(replyStorageKey, value)) return; } catch { /* Keep the saved device copy. */ }
+      if (!saved) throw Error('Could not save reply helpers.');
+    },
+  } : undefined,
   render(view) {
+    const hadReplies = !!replyMenu;
+    replyMenu = view.replies;
+    if (hadReplies !== !!replyMenu) resetMomentum();
     const { mode, text, draft, status } = view;
     const messages = mode === 'menu' ? undefined : view.messages;
     const items = mode === 'menu' ? view.items : undefined;
@@ -686,7 +718,7 @@ const terminal = createTerminalController({
     void flush();
   },
   clearDraft(value) { if (codexView && input.value === value) input.value = ''; },
-  exit() { codexView = false; terminalMode = ''; document.documentElement.classList.remove('session-menu-active', 'terminal-touch-active'); restoreDocument(documents.current()); if (!home) input.focus({ preventScroll: true }); void flush(); },
+  exit() { codexView = false; terminalMode = ''; replyMenu = undefined; document.documentElement.classList.remove('session-menu-active', 'terminal-touch-active'); restoreDocument(documents.current()); if (!home) input.focus({ preventScroll: true }); void flush(); },
 });
 function mountTerminalInput(value = '') {
   const next = input.cloneNode(false);
@@ -910,7 +942,19 @@ async function connect() {
       }
       if (codexView && terminalMode === 'menu' && event.listEvent && (phoneMenu || sourceName !== 'session-list-' + sessionMenu?.menuId || displayedLayout !== menuLayout())) return;
       if (codexView && terminalMode === 'menu' && event.textEvent && sourceName && (sourceName !== 'pm-' + sessionMenu?.menuId || !phoneMenu || !displayedLayout.startsWith('phone-menu:'))) return;
+      if (codexView && replyMenu) {
+        const ownSource = sourceName === 'pm-' + replyMenu.menuId;
+        if (!ready || rebuilding || displayedLayout !== replyLayout() || (sourceName && !ownSource) || event.listEvent) return;
+        if (ownSource) glassesActive = true;
+        if (!glassesActive) return;
+        if (type === OsEventTypeList.SCROLL_TOP_EVENT) terminal.moveReplies(-1);
+        else if (type === OsEventTypeList.SCROLL_BOTTOM_EVENT) terminal.moveReplies(1);
+        else if (type === OsEventTypeList.DOUBLE_CLICK_EVENT) terminal.closeReplies();
+        else if (type === OsEventTypeList.CLICK_EVENT || (type === undefined && (ownSource || event.sysEvent))) void terminal.chooseReply();
+        return;
+      }
       if (sourceName && codexView && terminalMode === 'chat' && sourceName !== 'terminal-frame') return;
+      if (sourceName?.startsWith('pm-r') && codexView) return;
       if (xView && (rebuilding || displayedLayout !== 'x' || xDialog.open || codexDialog.open || required<HTMLDialogElement>('#documents').open || (sourceName && sourceName !== 'x-frame'))) return;
       if (newsView && (rebuilding || displayedLayout !== 'news' || xDialog.open || codexDialog.open || required<HTMLDialogElement>('#documents').open || (sourceName && sourceName !== 'news-frame'))) return;
       if (!glassesActive && sourceName && ((terminalMode === 'menu' && (sourceName === 'session-list-' + sessionMenu?.menuId || sourceName === 'pm-' + sessionMenu?.menuId)) || (terminalMode === 'chat' && sourceName === 'terminal-frame') || (xView && sourceName === 'x-frame') || (newsView && sourceName === 'news-frame') || (!codexView && !xView && !newsView && sourceName === 'terminal-frame'))) glassesActive = true;
@@ -918,7 +962,14 @@ async function connect() {
       if (interactive && type === OsEventTypeList.DOUBLE_CLICK_EVENT) { returnHome(); return; }
       if (interactive && xView && (type === undefined || type === OsEventTypeList.CLICK_EVENT) && !xLoading) { void loadXPage(xPosts.length === 0 || !xFailed); return; }
       if (interactive && newsView && (type === undefined || type === OsEventTypeList.CLICK_EVENT) && news.current().status !== 'loading') { void news.refresh({ force: true }); return; }
-      if (interactive && codexView && type === OsEventTypeList.LONG_PRESS_EVENT) { resetMomentum(); void terminal.stop(); return; }
+      if (interactive && codexView && type === OsEventTypeList.LONG_PRESS_EVENT) {
+        const dialogOpen = codexDialog.open || xDialog.open || required<HTMLDialogElement>('#documents').open;
+        const expectedLayout = terminalMode === 'chat' ? 'chat' : terminalMode === 'permission' ? 'terminal' : '';
+        if (!rebuilding && !dialogOpen && displayedLayout === expectedLayout && expectedLayout) {
+          resetMomentum(); glassesScroll.reset(); void terminal.openReplies();
+        }
+        return;
+      }
       if (interactive && codexView && (terminalMode === 'menu' || terminalMode === 'permission' && (type === undefined || type === OsEventTypeList.CLICK_EVENT))) {
         if (choosingSession) return;
         if (terminalMode === 'menu' && (type === undefined || type === OsEventTypeList.CLICK_EVENT) && cancelPhoneTap.isPending?.()) return;

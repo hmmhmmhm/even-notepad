@@ -72,6 +72,63 @@ export function createCodexClient({ fetcher = fetch, onStatus, onSession = () =>
       if (data.error) throw new Error('Could not load history. Check the server.');
       return Array.isArray(data.history) ? data.history.filter(isHistory) : [];
     },
+    async suggestReplies({ originalId, helperId, prompt, beforeSubmit, onSession }: {
+      originalId: string; helperId?: string; prompt: string;
+      beforeSubmit: () => Promise<void>; onSession: (id: string) => Promise<void>;
+    }) {
+      const messages = (id: string, after: number) => request('/api/messages?sessionId=' + encodeURIComponent(id) + '&provider=codex&after=' + after);
+      let after = 0;
+      if (helperId) {
+        const existing = await messages(helperId, after);
+        if (existing.error || existing.state !== 'idle') throw new Error('Helper is busy.');
+        for (const event of eventsOf(existing.messages)) if (event.id !== undefined && Number.isFinite(event.id)) after = Math.max(after, event.id);
+      }
+      await beforeSubmit();
+      const result = await request('/api/prompt', { method: 'POST', body: JSON.stringify({ text: prompt, provider: 'codex', ...(helperId ? { sessionId: helperId } : {}) }) });
+      if (result.error || typeof result.sessionId !== 'string' || !result.sessionId || result.sessionId === originalId
+        || (helperId && helperId !== result.sessionId)) throw new Error('Invalid helper session response.');
+      const id = result.sessionId;
+      let ownTurn = false;
+      let output = '';
+      let state: unknown;
+      const deadline = Date.now() + 65000;
+      try {
+        await onSession(id);
+        while (Date.now() < deadline) {
+          const poll = await messages(id, after).catch(() => null);
+          if (!poll || poll.error) { await wait(650); continue; }
+          state = poll.state;
+          for (const event of eventsOf(poll.messages)) {
+            if (event.id === undefined || !Number.isFinite(event.id) || event.id <= after) continue;
+            after = event.id;
+            if (event.type === 'user_prompt') {
+              ownTurn = event.text === prompt;
+              output = '';
+            }
+            if (!ownTurn) continue;
+            if (['tool_start', 'tool_end', 'permission_request', 'question_request'].includes(event.type)) throw new Error('Helper attempted tool use.');
+            if (event.type === 'text_delta') output += event.text || '';
+            if (output.length > 2000 || event.type === 'error' || (event.type === 'result' && event.success !== true)) throw new Error('Helper reply failed.');
+            if (event.type === 'result') {
+              const text = event.text || output;
+              if (text.length > 2000) throw new Error('Helper reply too long.');
+              return text;
+            }
+          }
+          if (ownTurn && state === 'awaiting') throw new Error('Helper attempted tool use.');
+          await wait(650);
+        }
+        throw new Error('Helper timed out.');
+      } catch (error) {
+        if (ownTurn && (state === 'busy' || state === 'awaiting')) {
+          // The helper may already have finished or switched turns by the time the stop arrives.
+          try {
+            await request('/api/interrupt', { method: 'POST', body: JSON.stringify({ sessionId: id, provider: 'codex' }) });
+          } catch { /* The original failure remains the one reported to the caller. */ }
+        }
+        throw error;
+      }
+    },
     async interruptSession(id: string) {
       const result = await request('/api/interrupt', { method: 'POST', body: JSON.stringify({ sessionId: id, provider: 'codex' }) });
       if (!result.ok) throw new Error('Could not send stop request.');

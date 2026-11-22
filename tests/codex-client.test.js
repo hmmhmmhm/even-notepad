@@ -168,3 +168,48 @@ test('preserves tool completion events with structured detail from the server', 
   assert.equal(events[0].summary, undefined);
   assert.equal(events[0].name, 'Shell');
 });
+
+test('a helper permission request interrupts only the helper', async () => {
+  const writes = [];
+  const client = createCodexClient({ onStatus() {}, fetcher: async (url, options) => {
+    if (options.method === 'POST') {
+      writes.push([new URL(url).pathname, JSON.parse(options.body)]);
+      return respond({ sessionId: 'helper', ok: true });
+    }
+    if (url.includes('/api/messages')) {
+      return respond({ state: 'awaiting', messages: [{ id: 1, type: 'user_prompt', text: 'test' }, { id: 2, type: 'permission_request' }] });
+    }
+    return respond({ sessions: [] });
+  } });
+  await client.connect('http://localhost', 'token');
+  await assert.rejects(client.suggestReplies({ originalId: 'original', prompt: 'test', beforeSubmit: async () => {}, onSession: async () => {} }), /tool use/i);
+  assert.deepEqual(writes.map(([path, body]) => [path, body.sessionId]), [['/api/prompt', undefined], ['/api/interrupt', 'helper']]);
+});
+
+test('the helper ignores results already delivered before the new prompt', async () => {
+  const old = { id: 4, type: 'result', text: 'old result' };
+  let posted = false;
+  const client = createCodexClient({ onStatus() {}, fetcher: async (url, options) => {
+    if (options.method === 'POST') { posted = true; return respond({ sessionId: 'helper' }); }
+    if (url.includes('/api/messages')) {
+      assert.equal(new URL(url).searchParams.get('after'), posted ? '4' : '0');
+      return respond({ state: 'idle', messages: posted ? [old, { id: 5, type: 'user_prompt', text: 'test' }, { id: 6, type: 'result', success: true, text: 'new result' }] : [old] });
+    }
+    return respond({ sessions: [] });
+  } });
+  await client.connect('http://localhost', 'token');
+  assert.equal(await client.suggestReplies({ originalId: 'original', helperId: 'helper', prompt: 'test', beforeSubmit: async () => {}, onSession: async () => {} }), 'new result');
+});
+
+test('helper suggestions require an explicit successful result from their own submitted prompt', async () => {
+  const prompt = 'our prompt';
+  const client = createCodexClient({ onStatus() {}, fetcher: async (url, options) => {
+    if (options.method === 'POST') return respond({ sessionId: 'helper' });
+    if (url.includes('/api/messages')) return respond({
+      state: 'idle', messages: [{ id: 1, type: 'user_prompt', text: prompt }, { id: 2, type: 'result', text: 'unconfirmed' }],
+    });
+    return respond({ sessions: [] });
+  } });
+  await client.connect('http://localhost', 'token');
+  await assert.rejects(client.suggestReplies({ originalId: 'original', prompt, beforeSubmit: async () => {}, onSession: async () => {} }), /reply failed/i);
+});

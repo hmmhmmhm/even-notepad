@@ -24,6 +24,8 @@ Terminal connections are not supported in the public build. First create a [pers
 
 Personal builds permit only addresses listed in their packaged manifest; wildcard support is not verified. `--allow-cors` permits cross-origin requests, so keep the server on a trusted tailnet and protect its token. The Even App storage used for tokens is not documented as encrypted credential storage.
 
+In a personal build, hold the glasses or ring touchpad in a terminal conversation to open suggested replies. Scroll and tap to choose; the menu also offers a stop action when a response is running. Each request sends recent conversation text to a separate Codex session on the same server. That session is hidden in this app when its identifier is known, but remains in the server's session history and can consume account usage. The official server does not guarantee tool isolation for that session. Its session-list limit can also cause older conversations to be omitted when suggestion sessions occupy recent slots. Do not use suggestions with conversation content you do not want copied to another Codex session.
+
 ## X (Twitter)
 
 1. Create an app in the [X Developer Console](https://console.x.com/). Configure OAuth 2.0 as a **Native App** or **Single Page App** (public client).

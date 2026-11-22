@@ -1,5 +1,7 @@
 import { createCodexClient, type Session, type TerminalEvent } from './codex-client.ts';
 
+import { parseReplies, readHelpers, replyLimit, replyPrompt, type ReplyStorage } from './terminal-replies.ts';
+
 type Mode = 'menu' | 'chat' | 'permission' | 'closed';
 type Message = { role: string; text: string };
 type Client = ReturnType<typeof createCodexClient>;
@@ -7,14 +9,15 @@ type SessionRecord = {
   id: string | null; messages: Message[]; draft: string; client: Client; replay: boolean; epoch: number; tools: Map<string, Message>;
   status?: string; title?: string; permission?: TerminalEvent | null; externalBusy?: boolean; started?: number; clock?: ReturnType<typeof setInterval> | null;
   unwatch?: (() => void) | null; stream?: Message | null; hadText?: boolean; finishSequence?: number; awaitingStart?: number; stopNotice?: string;
-  stopping?: boolean; editor?: object;
+  stopping?: boolean; editor?: object; suggested?: string[]; replyRevision?: number; replyHistory?: Message[];
 };
-type View = { mode: 'menu'; text: string; draft: string; status: string; items: string[]; selected: number; start: number; menuId: number } | { mode: 'chat' | 'permission'; text: string; draft: string; status: string; messages?: Message[] };
-type ControllerOptions = { render: (view: View) => void; exit: () => void; clearDraft?: (draft: string) => void; makeClient?: typeof createCodexClient };
+type ReplyMenu = { items: string[]; selected: number; start: number; menuId: string; status: string };
+type View = ({ mode: 'menu'; text: string; draft: string; status: string; items: string[]; selected: number; start: number; menuId: number } | { mode: 'chat' | 'permission'; text: string; draft: string; status: string; messages?: Message[] }) & { replies?: ReplyMenu };
+type ControllerOptions = { render: (view: View) => void; exit: () => void; clearDraft?: (draft: string) => void; makeClient?: typeof createCodexClient; replyStorage?: ReplyStorage };
 function unrefTimer(timer: unknown) {
   if (typeof timer === 'object' && timer !== null && 'unref' in timer && typeof timer.unref === 'function') timer.unref();
 }
-export function createTerminalController({ render, exit, clearDraft = () => {}, makeClient = createCodexClient }: ControllerOptions) {
+export function createTerminalController({ render, exit, clearDraft = () => {}, makeClient = createCodexClient, replyStorage }: ControllerOptions) {
   let url = '', token = '', index = 0, menuId = 0, serial = 0, epoch = 0;
   let mode: Mode = 'menu';
   let sessions: Session[] = [], menuSessions: Session[] = [], menuItems: string[] = [];
@@ -24,6 +27,103 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
   let refreshTimer: ReturnType<typeof setInterval> | undefined, refreshing = false;
   let pendingDraft: SessionRecord | null = null;
   const records = new Map<string, SessionRecord>();
+  let helperRegistry: ReturnType<typeof readHelpers> | undefined;
+  let registryLoad: Promise<void> | undefined;
+  let registryWrite = Promise.resolve();
+  const requests = new Set<string>();
+  const uncertain = new Set<string>();
+  let replyMenu: { id: number; selected: number; status: string; previousRows?: string } | undefined;
+  let replyMenuId = 0;
+  function origin(address = url) { return new URL(address).origin; }
+  function visibleSessions(items: Session[], address = url) {
+    const hidden = new Set(helperRegistry?.filter(entry => entry[0] === origin(address)).map(entry => entry[2]));
+    return items.filter(item => !hidden.has(item.id)).slice(0, 18);
+  }
+  function saveHelper(server: string, original: string, helper: string | null) {
+    if (!helperRegistry || !replyStorage) throw new Error('Helper registry unavailable.');
+    helperRegistry = [...helperRegistry.filter(entry => entry[0] !== server || entry[1] !== original), [server, original, helper]];
+    const value = JSON.stringify(helperRegistry);
+    registryWrite = registryWrite.catch(() => {}).then(() => replyStorage.write(value));
+    return registryWrite;
+  }
+  function canStop(record: SessionRecord) { return !!(record.id && (record.externalBusy || record.permission)); }
+  function replyRows(record: SessionRecord) {
+    const choices = record.suggested || [];
+    return [
+      { kind: 'back', label: 'Back' },
+      ...(canStop(record) ? [{ kind: 'stop', label: 'Stop response' }] : []),
+      ...choices.map(label => ({ kind: 'send', label })),
+      ...(record.id && choices.length < replyLimit ? [{ kind: 'more', label: 'More different replies' }] : []),
+    ];
+  }
+  function replyView(record: SessionRecord): ReplyMenu | undefined {
+    if (!replyMenu) return;
+    const items = replyRows(record).map(row => row.label);
+    const signature = JSON.stringify(items);
+    if (replyMenu.previousRows && replyMenu.previousRows !== signature) replyMenu.id = ++replyMenuId;
+    replyMenu.previousRows = signature;
+    replyMenu.selected = Math.min(replyMenu.selected, items.length - 1);
+    return { items, selected: replyMenu.selected, start: Math.max(0, replyMenu.selected - 5), menuId: 'r' + replyMenu.id,
+      status: record.stopNotice || replyMenu.status };
+  }
+  function invalidateReplies(record: SessionRecord) {
+    record.suggested = [];
+    record.replyHistory = undefined;
+    record.replyRevision = (record.replyRevision || 0) + 1;
+    if (current === record && replyMenu) {
+      replyMenu.id = ++replyMenuId;
+      replyMenu.selected = 0;
+      replyMenu.status = '';
+    }
+  }
+  async function requestReplies() {
+    const record = current, menu = replyMenu;
+    if (!record?.id || !menu || !helperRegistry) return;
+    const original = record.id, server = origin();
+    const key = JSON.stringify([server, original]);
+    if (requests.has(key) || (record.suggested?.length ?? 0) >= replyLimit) return;
+    const entry = helperRegistry.find(e => e[0] === server && e[1] === original);
+    if (entry?.[2] === null || uncertain.has(key)) { menu.status = 'Reply request unconfirmed'; draw(); return; }
+    requests.add(key);
+    menu.status = 'Finding replies…';
+    const revision = record.replyRevision;
+    const valid = () => current === record && replyMenu === menu && revision === record.replyRevision && record.epoch === epoch && !!url;
+    draw();
+    try {
+      const history = record.replyHistory ?? await record.client.history(original);
+      if (!valid()) return;
+      record.replyHistory = history;
+      const previous = record.suggested || [];
+      const result = await record.client.suggestReplies({
+        originalId: original,
+        helperId: entry?.[2] || undefined,
+        prompt: replyPrompt(history, previous),
+        async beforeSubmit() {
+          if (!valid()) throw new Error('Reply context changed.');
+          if (!entry) await saveHelper(server, original, null);
+          uncertain.add(key);
+        },
+        async onSession(id) {
+          if (!entry) {
+            await saveHelper(server, original, id);
+            if (url && origin() === server) sessions = visibleSessions(sessions);
+          }
+          uncertain.delete(key);
+        },
+      });
+      if (!valid()) return;
+      const next = parseReplies(result, previous);
+      record.suggested = [...previous, ...next];
+      menu.selected = previous.length ? replyRows(record).findIndex(row => row.kind === 'send' && row.label === next[0]) : 0;
+      menu.status = '';
+    } catch {
+      if (valid()) menu.status = uncertain.has(key) || helperRegistry.find(e => e[0] === server && e[1] === original)?.[2] === null
+        ? 'Reply request unconfirmed' : 'Could not find replies. Try again.';
+    } finally {
+      requests.delete(key);
+      if (valid()) draw();
+    }
+  }
   function buildRows() { return ['＋ New session', ...menuSessions.map(s => {
     const record = records.get(s.id);
     return (record ? record.permission ? '? ' : record.client.active || record.externalBusy ? '· ' : '  ' : s.status === 'awaiting' ? '? ' : s.status === 'busy' ? '· ' : '  ') + (s.title || 'Codex session');
@@ -40,7 +140,7 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
     else if (mode === 'permission' && current?.permission) {
       const p = current.permission;
       const elapsed = current.started ? Math.floor((Date.now() - current.started) / 1000) + 's · ' : '';
-      render({ mode, text: '? Permission request\n' + (p.description || p.toolName || '') + '\n' + (p.detail || ''), draft: '', status: current.stopNotice || elapsed + 'Approve or deny in the original terminal' });
+      render({ mode, replies: replyView(current), text: '? Permission request\n' + (p.description || p.toolName || '') + '\n' + (p.detail || ''), draft: '', status: current.stopNotice || elapsed + 'Approve or deny in the original terminal' });
     }
     else if (current) {
       const text = current.messages.map(m => (m.role === 'tool' ? '' : '> ') + m.text).join('\n') || 'New session';
@@ -48,9 +148,9 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
       const currentId = current.id;
       const attention = sessions.some(s => s.id !== currentId && (records.get(s.id)?.permission || s.status === 'awaiting'));
       const status = current.stopNotice || (current.client.active ? 'Submitting ' + elapsed
-        : current.externalBusy || current.awaitingStart ? 'Working ' + elapsed + (current.externalBusy ? ' · Hold to stop' : '')
+        : current.externalBusy || current.awaitingStart ? 'Working ' + elapsed + (current.id && replyStorage ? ' · Hold for replies' : '')
         : current.status || (attention ? 'Another session needs permission' : 'Ready'));
-      render({ mode, text, messages: current.messages, draft: current.draft, status });
+      render({ mode, replies: replyView(current), text, messages: current.messages, draft: current.draft, status });
     }
   }
   function createRecord(id: string | null = null) {
@@ -101,6 +201,7 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
       if (message && event.toolId) { message.text = text; record.tools.delete(event.toolId); }
       else record.messages.push({ role: 'tool', text });
     } else if (event.type === 'user_prompt' && event.text) {
+      invalidateReplies(record);
       record.stream = null;
       record.hadText = false;
       record.status = '';
@@ -113,6 +214,7 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
       record.stream.text += event.text;
       record.hadText = true;
     } else if (event.type === 'result' || event.type === 'error') {
+      invalidateReplies(record);
       record.finishSequence = (record.finishSequence || 0) + 1;
       record.awaitingStart = 0;
       record.stopNotice = '';
@@ -155,7 +257,7 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
     }, { replay: record.replay });
   }
   function leave() {
-    ++serial; ++connectionSerial; mode = 'closed'; clearInterval(refreshTimer);
+    ++serial; ++connectionSerial; mode = 'closed'; replyMenu = undefined; clearInterval(refreshTimer);
     for (const record of records.values()) { record.unwatch?.(); record.unwatch = null; stopClock(record); }
     if (pendingDraft && (!pendingDraft.id || !records.has(pendingDraft.id))) { pendingDraft.unwatch?.(); pendingDraft.unwatch = null; stopClock(pendingDraft); }
     url = ''; token = ''; exit();
@@ -168,7 +270,13 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
       ++serial;
       const probe = createRecord();
       let nextSessions;
-      try { nextSessions = await probe.client.connect(nextAddress, nextToken); }
+      try {
+        if (replyStorage && !helperRegistry) {
+          await (registryLoad ??= replyStorage.read().then(raw => { helperRegistry = readHelpers(raw); }).catch(() => {}).finally(() => { registryLoad = undefined; }));
+        }
+        if (connection !== connectionSerial) return false;
+        nextSessions = await probe.client.connect(nextAddress, nextToken);
+      }
       catch (error) { if (connection !== connectionSerial) return false; throw error; }
       if (connection !== connectionSerial) return false;
       if (lastAddress && (nextAddress !== lastAddress || nextToken !== lastToken)) {
@@ -178,14 +286,14 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
       }
       ++serial;
       url = lastAddress = nextAddress; token = lastToken = nextToken;
-      sessions = nextSessions; menuSessions = sessions.slice(0, 18); menuItems = buildRows(); ++menuId; mode = 'menu'; index = 0; draw();
+      replyMenu = undefined; sessions = visibleSessions(nextSessions); menuSessions = sessions.slice(0, 18); menuItems = buildRows(); ++menuId; mode = 'menu'; index = 0; draw();
       clearInterval(refreshTimer);
       const refreshAddress = url, refreshToken = token;
       refreshTimer = setInterval(async () => {
         if (refreshing || connection !== connectionSerial || !url || url !== refreshAddress || token !== refreshToken) return;
         refreshing = true;
         try {
-          const fresh = await probe.client.connect(refreshAddress, refreshToken);
+          const fresh = visibleSessions(await probe.client.connect(refreshAddress, refreshToken), refreshAddress);
           if (connection !== connectionSerial || !url || url !== refreshAddress || token !== refreshToken) return;
           sessions = [...fresh, ...sessions.filter(s => records.has(s.id) && !fresh.some(f => f.id === s.id))];
           if (mode !== 'menu') draw();
@@ -197,7 +305,7 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
     },
     isOpen() { return !!url; },
     currentDraft() { return current?.draft || ''; },
-    menu() { ++serial; menuSessions = sessions.slice(0, 18); menuItems = buildRows(); ++menuId; mode = 'menu'; index = 0; draw(); },
+    menu() { ++serial; replyMenu = undefined; menuSessions = sessions.slice(0, 18); menuItems = buildRows(); ++menuId; mode = 'menu'; index = 0; draw(); },
     move(delta: number) { if (mode !== 'menu') return false; index = Math.max(0, Math.min(rows().length - 1, index + delta)); draw(); return true; },
     selectMenu(position: number) { if (mode !== 'menu' || !Number.isInteger(position) || position < 0 || position >= rows().length) return false; index = position; return true; },
     reportMenuError(message: string) { if (mode === 'menu') render({ mode, text: rows().join('\n'), items: rows(), selected: index, start: Math.max(0, index - 5), menuId, draft: '', status: message }); },
@@ -240,6 +348,42 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
       };
     },
     canSend() { return mode === 'chat' && !!current && !current.client.active && !current.awaitingStart; },
+    async openReplies() {
+      if (!current || !replyStorage || replyMenu || (mode !== 'chat' && mode !== 'permission')) return;
+      replyMenu = { id: ++replyMenuId, selected: 0, status: !helperRegistry ? 'Reply storage unavailable' : !current.id ? 'Start a conversation first' : '' };
+      draw();
+      if (!current.suggested?.length) await requestReplies();
+    },
+    closeReplies() { replyMenu = undefined; draw(); },
+    moveReplies(delta: number) {
+      if (!current || !replyMenu) return;
+      replyMenu.selected = Math.max(0, Math.min(replyRows(current).length - 1, replyMenu.selected + delta));
+      draw();
+    },
+    async chooseReply() {
+      const record = current, menu = replyMenu;
+      if (!record || !menu) return;
+      const row = replyRows(record)[menu.selected];
+      if (!row) return;
+      if (row.kind === 'back') { this.closeReplies(); return; }
+      if (row.kind === 'stop') { await this.stop(); return; }
+      if (row.kind === 'more') { await requestReplies(); return; }
+      if (mode !== 'chat' || !record.id || record.client.active || record.awaitingStart || record.externalBusy || record.permission) {
+        menu.status = 'Session busy · Reply kept';
+        draw();
+        return;
+      }
+      replyMenu = undefined;
+      draw();
+      const finishSequence = record.finishSequence || 0;
+      const accepted = await record.client.send(url, token, row.label);
+      if (accepted || record.status?.startsWith('Receipt unconfirmed')) invalidateReplies(record);
+      if (accepted && record.epoch === epoch && url && !record.externalBusy && (record.finishSequence || 0) === finishSequence) {
+        record.awaitingStart = Date.now() + 15000;
+        startClock(record);
+      }
+      if (current === record) draw();
+    },
     async stop() {
       if ((mode !== 'chat' && mode !== 'permission') || !current?.id || current.stopping || (!current.externalBusy && !current.permission)) return;
       const record = current, id = current.id;
@@ -261,6 +405,8 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
       if (mode !== 'chat' || !record || record.client.active || record.awaitingStart || !record.draft.trim()) return;
       const draft = record.draft;
       const finishSequence = record.finishSequence || 0;
+      replyMenu = undefined;
+      invalidateReplies(record);
       record.title = draft.trim().slice(0, 40);
       startClock(record);
       let accepted = false;

@@ -258,3 +258,118 @@ test('the same editor accepts new drafts after a successful send', async () => {
   assert.equal(views.at(-1).draft,'');
   save('second'); assert.equal(views.at(-1).draft,'second');
 });
+
+test('glasses replies accumulate and send once to the original session while keeping the draft', async () => {
+  const views = [], sent = [], requests = [];
+  const makeClient = () => ({
+    active: false,
+    async connect() { return [{ id: 'original' }, { id: 'helper' }]; },
+    select(id) { this.id = id; },
+    async history() { return [{ role: 'assistant', text: 'What next?' }]; },
+    async send(url, token, text) { sent.push([this.id, text]); return true; },
+    async suggestReplies(options) {
+      requests.push(options.helperId);
+      await options.onSession('helper');
+      const n = requests.length;
+      return JSON.stringify(['Continue ' + n, 'Summarize ' + n, 'Clarify ' + n]);
+    },
+  });
+  let storage = JSON.stringify([['http://example', 'original', 'helper']]);
+  const t = createTerminalController({
+    render: view => views.push(view), exit() {}, makeClient,
+    replyStorage: { read: async () => storage, write: async value => { storage = value; } },
+  });
+  await t.connect('http://example', 'token');
+  assert.equal(views.at(-1).items.length, 3);
+  t.move(1); await t.choose(); t.setDraft('Keep this draft');
+  await t.openReplies();
+  assert.deepEqual(views.at(-1).replies.items, ['Back', 'Continue 1', 'Summarize 1', 'Clarify 1', 'More different replies']);
+  t.moveReplies(4); await t.chooseReply();
+  assert.deepEqual(views.at(-1).replies.items, ['Back', 'Continue 1', 'Summarize 1', 'Clarify 1', 'Continue 2', 'Summarize 2', 'Clarify 2', 'More different replies']);
+  assert.deepEqual(requests, ['helper', 'helper']);
+  t.moveReplies(-100); t.moveReplies(1);
+  await Promise.all([t.chooseReply(), t.chooseReply()]);
+  assert.deepEqual(sent, [['original', 'Continue 1']]);
+  assert.equal(views.at(-1).draft, 'Keep this draft');
+  t.leave();
+});
+
+test('a new original turn discards a pending suggestion and exposes Stop only while running', async () => {
+  let observe, resolveReplies;
+  const views = [], interrupted = [];
+  const makeClient = () => ({
+    async connect() { return [{ id: 'original' }]; },
+    select() {},
+    async history() { return [{ role: 'assistant', text: 'What next?' }]; },
+    watch(id, consume) { observe = consume; return () => {}; },
+    async interruptSession(id) { interrupted.push(id); },
+    async suggestReplies() { return await new Promise(resolve => { resolveReplies = resolve; }); },
+  });
+  const t = createTerminalController({
+    render: view => views.push(view), exit() {}, makeClient,
+    replyStorage: { read: async () => '', write: async () => {} },
+  });
+  await t.connect('http://example', 'token');
+  t.move(1); await t.choose();
+  const generation = t.openReplies();
+  await Promise.resolve();
+  observe([{ type: 'user_prompt', text: 'New turn' }], 'busy');
+  resolveReplies('["Old 1", "Old 2", "Old 3"]');
+  await generation;
+  assert.deepEqual(views.at(-1).replies.items, ['Back', 'Stop response', 'More different replies']);
+  t.moveReplies(1); await t.chooseReply();
+  assert.deepEqual(interrupted, ['original']);
+  observe([], 'idle');
+  assert.equal(views.at(-1).replies.items.includes('Stop response'), false);
+  t.leave();
+});
+
+test('More stops at 30 distinct replies and reuses a recent history snapshot', async () => {
+  let view, reads = 0, batches = 0;
+  const makeClient = () => ({
+    async connect() { return [{ id: 'original' }]; },
+    select() {},
+    async history() { reads++; return [{ role: 'assistant', text: 'What next?' }]; },
+    async suggestReplies({ beforeSubmit, onSession }) {
+      await beforeSubmit();
+      await onSession('helper');
+      const first = batches++ * 3;
+      return JSON.stringify([1, 2, 3].map(index => 'Option ' + (first + index)));
+    },
+  });
+  const t = createTerminalController({ render: display => { view = display; }, exit() {}, makeClient,
+    replyStorage: { read: async () => '', write: async () => {} } });
+  await t.connect('http://example', 'token');
+  t.move(1); await t.choose(); await t.openReplies();
+  for (let i = 1; i < 10; i++) {
+    t.moveReplies(50); await t.chooseReply();
+  }
+  assert.equal(view.replies.items.length, 31);
+  assert.equal(view.replies.items.at(-1), 'Option 30');
+  assert.equal(batches, 10);
+  assert.equal(reads, 2);
+  t.leave();
+});
+
+test('a helper creation with an unconfirmed receipt is not repeated after restarting', async () => {
+  let storage = '', posts = 0, view;
+  const makeClient = () => ({
+    async connect() { return [{ id: 'original' }]; },
+    select() {},
+    async history() { return [{ role: 'assistant', text: 'What next?' }]; },
+    async suggestReplies({ beforeSubmit }) {
+      await beforeSubmit();
+      posts++;
+      throw new Error('Lost POST response');
+    },
+  });
+  for (let open = 0; open < 2; open++) {
+    const t = createTerminalController({ render: display => { view = display; }, exit() {}, makeClient,
+      replyStorage: { read: async () => storage, write: async data => { storage = data; } } });
+    await t.connect('http://example', 'token');
+    t.move(1); await t.choose(); await t.openReplies();
+    assert.equal(view.replies.status, 'Reply request unconfirmed');
+    t.leave();
+  }
+  assert.equal(posts, 1);
+});
