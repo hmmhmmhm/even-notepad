@@ -15,7 +15,7 @@ import { createTerminalController } from './terminal-controller.ts';
 import { createComputers } from './computers.ts';
 import { terminalLines } from './terminal-format.ts';
 import { watchPhoneMenuTouch } from './phone-menu-touch.ts';
-import { terminalMenuLayout } from './terminal-menu-layout.ts';
+import { replyMenuLayout, terminalMenuLayout } from './terminal-menu-layout.ts';
 import { backAfterInput } from './terminal-back.ts';
 import { startupLayout, startupLogo } from './startup-menu.ts';
 import { isWorkspaceTarget } from './phone-workspace.ts';
@@ -92,7 +92,7 @@ let terminalStatus = '';
 let displayedLayout = 'home:0:';
 type SessionMenu = { items: string[]; selected: number; start: number; menuId: number };
 let sessionMenu: SessionMenu | null = null;
-let replyMenu: { items: string[]; selected: number; start: number; menuId: string; status: string } | undefined;
+let replyMenu: { items: string[]; selected: number; menuId: string; status: string } | undefined;
 const replyLayout = () => 'replies:' + replyMenu?.menuId + ':' + replyMenu?.selected;
 let phoneMenu = false;
 let styledLines: ReturnType<typeof terminalLines> = [];
@@ -274,7 +274,7 @@ async function flush() {
           continue;
         }
         if (wanted.startsWith('replies:') && replyMenu) {
-          const textObject = terminalMenuLayout(replyMenu, menuLabel, replyMenu.status);
+          const textObject = replyMenuLayout(replyMenu, replyMenu.status);
           rebuilding = true;
           let rebuilt;
           try { rebuilt = await bridgeWrite(() => host.rebuildPageContainer(pageContainer({ containerTotalNum: textObject.length, textObject }))); }

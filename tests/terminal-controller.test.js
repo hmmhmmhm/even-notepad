@@ -261,6 +261,7 @@ test('the same editor accepts new drafts after a successful send', async () => {
 
 test('glasses replies accumulate and send once to the original session while keeping the draft', async () => {
   const views = [], sent = [], requests = [];
+  const firstReply = 'Please continue with the remaining checks.\nPause before making irreversible changes.';
   const makeClient = () => ({
     active: false,
     async connect() { return [{ id: 'original' }, { id: 'helper' }]; },
@@ -271,7 +272,7 @@ test('glasses replies accumulate and send once to the original session while kee
       requests.push(options.helperId);
       await options.onSession('helper');
       const n = requests.length;
-      return JSON.stringify(['Continue ' + n, 'Summarize ' + n, 'Clarify ' + n]);
+      return JSON.stringify([n === 1 ? firstReply : 'Continue ' + n, 'Summarize ' + n, 'Clarify ' + n]);
     },
   });
   let storage = JSON.stringify([['http://example', 'original', 'helper']]);
@@ -283,13 +284,13 @@ test('glasses replies accumulate and send once to the original session while kee
   assert.equal(views.at(-1).items.length, 3);
   t.move(1); await t.choose(); t.setDraft('Keep this draft');
   await t.openReplies();
-  assert.deepEqual(views.at(-1).replies.items, ['Back', 'Continue 1', 'Summarize 1', 'Clarify 1', 'More different replies']);
+  assert.deepEqual(views.at(-1).replies.items, ['Back', firstReply, 'Summarize 1', 'Clarify 1', 'More different replies']);
   t.moveReplies(4); await t.chooseReply();
-  assert.deepEqual(views.at(-1).replies.items, ['Back', 'Continue 1', 'Summarize 1', 'Clarify 1', 'Continue 2', 'Summarize 2', 'Clarify 2', 'More different replies']);
+  assert.deepEqual(views.at(-1).replies.items, ['Back', firstReply, 'Summarize 1', 'Clarify 1', 'Continue 2', 'Summarize 2', 'Clarify 2', 'More different replies']);
   assert.deepEqual(requests, ['helper', 'helper']);
   t.moveReplies(-100); t.moveReplies(1);
   await Promise.all([t.chooseReply(), t.chooseReply()]);
-  assert.deepEqual(sent, [['original', 'Continue 1']]);
+  assert.deepEqual(sent, [['original', firstReply]]);
   assert.equal(views.at(-1).draft, 'Keep this draft');
   t.leave();
 });

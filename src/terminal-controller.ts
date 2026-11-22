@@ -11,7 +11,7 @@ type SessionRecord = {
   unwatch?: (() => void) | null; stream?: Message | null; hadText?: boolean; finishSequence?: number; awaitingStart?: number; stopNotice?: string;
   stopping?: boolean; editor?: object; suggested?: string[]; replyRevision?: number; replyHistory?: Message[];
 };
-type ReplyMenu = { items: string[]; selected: number; start: number; menuId: string; status: string };
+type ReplyMenu = { items: string[]; selected: number; menuId: string; status: string };
 type View = ({ mode: 'menu'; text: string; draft: string; status: string; items: string[]; selected: number; start: number; menuId: number } | { mode: 'chat' | 'permission'; text: string; draft: string; status: string; messages?: Message[] }) & { replies?: ReplyMenu };
 type ControllerOptions = { render: (view: View) => void; exit: () => void; clearDraft?: (draft: string) => void; makeClient?: typeof createCodexClient; replyStorage?: ReplyStorage };
 function unrefTimer(timer: unknown) {
@@ -63,7 +63,7 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
     if (replyMenu.previousRows && replyMenu.previousRows !== signature) replyMenu.id = ++replyMenuId;
     replyMenu.previousRows = signature;
     replyMenu.selected = Math.min(replyMenu.selected, items.length - 1);
-    return { items, selected: replyMenu.selected, start: Math.max(0, replyMenu.selected - 5), menuId: 'r' + replyMenu.id,
+    return { items, selected: replyMenu.selected, menuId: 'r' + replyMenu.id,
       status: record.stopNotice || replyMenu.status };
   }
   function invalidateReplies(record: SessionRecord) {
