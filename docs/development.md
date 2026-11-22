@@ -23,3 +23,7 @@ Validate phone focus, IME composition and deletion, text cursor placement, scrol
 ## Packaging
 
 `app.json` owns the package metadata and network allowlist. Verify the exact origins for Terminal, the X relay, and news before building. A saved computer is not necessarily reachable by the packaged app. Use the ignored `app.private.json` and `npm run pack:private` for local Terminal origins, as described in [Connections](connections.md#private-terminal-build). Do not add credentials to the allowlist or to Git.
+
+## Promotional videos
+
+See [Promotional video template](promo-video.md) for the reusable G2 and phone layout, timestamped narration, and export checks.

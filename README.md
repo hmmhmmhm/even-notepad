@@ -17,6 +17,14 @@ Write on your phone and see your words on your glasses. Stay connected to your t
 
 [Watch the full preview](docs/media/quiet-terminal-preview.mp4)
 
+### Suggested replies for Even Terminal
+
+Hold the R1 ring or glasses touchpad to choose a suggested reply on the glasses. Ask for more options when needed. This feature is available in a [personal build](docs/connections.md#private-terminal-build).
+
+[![Suggested replies preview](docs/media/quiet-terminal-suggested-replies.gif)](docs/media/quiet-terminal-suggested-replies.mp4)
+
+[Watch the suggested replies video](docs/media/quiet-terminal-suggested-replies.mp4)
+
 </div>
 
 ## Features
