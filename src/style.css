@@ -132,6 +132,8 @@ html.terminal-touch-active textarea#writer { touch-action: manipulation; }
 #codex-dialog button { padding: 8px 12px; border: 1px solid #8d7355; border-radius: 6px; color: #30251a; background: #dec6a4; font: inherit; }
 .codex-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 #open-codex { grid-column: 1 / -1; }
+#terminal-session-scope { width: 100%; min-height: 44px; padding: 8px; border: 1px solid #8d7355; border-radius: 6px; background: #eadac0; color: #30251a; font: inherit; }
+#terminal-session-settings-status:empty { display: none; }
 #computer-list { max-height: 35dvh; overflow-y: auto; }
 .computer-row { display: flex; gap: 8px; align-items: center; padding: 12px 0; border-bottom: 1px solid #a58a69; }
 .computer-info { flex: 1; min-width: 0; overflow-wrap: anywhere; }

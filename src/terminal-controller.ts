@@ -1,4 +1,5 @@
 import { createCodexClient, type Session, type TerminalEvent } from './codex-client.ts';
+import type { createTerminalSessionList } from './terminal-session-list.ts';
 
 import { parseReplies, readHelpers, replyLimit, replyPrompt, type HelperEntry, type PendingReply, type ReplyStorage } from './terminal-replies.ts';
 
@@ -7,21 +8,23 @@ type Message = { role: string; text: string };
 type Client = ReturnType<typeof createCodexClient>;
 type SessionRecord = {
   id: string | null; messages: Message[]; draft: string; client: Client; replay: boolean; epoch: number; tools: Map<string, Message>;
-  status?: string; title?: string; permission?: TerminalEvent | null; externalBusy?: boolean; started?: number; clock?: ReturnType<typeof setInterval> | null;
+  status?: string; creation?: { origin: string; title: string }; permission?: TerminalEvent | null; externalBusy?: boolean; started?: number; clock?: ReturnType<typeof setInterval> | null;
   unwatch?: (() => void) | null; stream?: Message | null; hadText?: boolean; finishSequence?: number; awaitingStart?: number; stopNotice?: string;
   stopping?: boolean; editor?: object; suggested?: string[]; replyRevision?: number; replyHistory?: Message[]; replyStatus?: string;
   replyRecovery?: { nonce: string; revision: number | undefined };
 };
 type ReplyMenu = { items: string[]; selected: number; menuId: string; status: string };
 type View = ({ mode: 'menu'; text: string; draft: string; status: string; items: string[]; selected: number; start: number; menuId: number } | { mode: 'chat' | 'permission'; text: string; draft: string; status: string; messages?: Message[] }) & { replies?: ReplyMenu };
-type ControllerOptions = { render: (view: View) => void; exit: () => void; clearDraft?: (draft: string) => void; makeClient?: typeof createCodexClient; replyStorage?: ReplyStorage };
+type ControllerOptions = { render: (view: View) => void; exit: () => void; clearDraft?: (draft: string) => void; makeClient?: typeof createCodexClient; replyStorage?: ReplyStorage; sessionList?: ReturnType<typeof createTerminalSessionList> };
 function unrefTimer(timer: unknown) {
   if (typeof timer === 'object' && timer !== null && 'unref' in timer && typeof timer.unref === 'function') timer.unref();
 }
-export function createTerminalController({ render, exit, clearDraft = () => {}, makeClient = createCodexClient, replyStorage }: ControllerOptions) {
+export function createTerminalController({ render, exit, clearDraft = () => {}, makeClient = createCodexClient, replyStorage, sessionList }: ControllerOptions) {
   let url = '', token = '', index = 0, menuId = 0, serial = 0, epoch = 0;
   let mode: Mode = 'menu';
   let sessions: Session[] = [], menuSessions: Session[] = [], menuItems: string[] = [];
+  let menuPage = 0, moreSessions = false, sessionStorageFailed = false;
+  const sessionsPerPage = 16;
   let current: SessionRecord | null = null;
   let lastAddress = '', lastToken = '';
   let connectionSerial = 0;
@@ -37,7 +40,22 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
   function origin(address = url) { return new URL(address).origin; }
   function visibleSessions(items: Session[], address = url) {
     const hidden = new Set(helperRegistry?.filter(entry => entry[0] === origin(address)).map(entry => entry[2]));
-    return items.filter(item => !hidden.has(item.id)).slice(0, 18);
+    return items.filter(item => !hidden.has(item.id));
+  }
+  function listedSessions() {
+    const saved = new Map(sessionList?.owned(origin()).map(session => [session.id, session]));
+    const recent = sessions.flatMap(session => {
+      const owned = saved.get(session.id);
+      saved.delete(session.id);
+      if (sessionList?.scope === 'app' && !owned) return [];
+      return [{ ...session, title: owned?.title || session.title }];
+    });
+    return visibleSessions([...recent, ...saved.values()]);
+  }
+  async function syncSessionList() {
+    if (!sessionList) return;
+    try { await sessionList.sync(); sessionStorageFailed = false; }
+    catch { sessionStorageFailed = true; }
   }
   function saveHelper(server: string, original: string, entry?: HelperEntry) {
     const storage = replyStorage;
@@ -155,7 +173,7 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
   function buildRows() { return ['＋ New session', ...menuSessions.map(s => {
     const record = records.get(s.id);
     return (record ? record.permission ? '? ' : record.client.active || record.externalBusy ? '· ' : '  ' : s.status === 'awaiting' ? '? ' : s.status === 'busy' ? '· ' : '  ') + (s.title || 'Codex session');
-  }), 'Back to computers']; }
+  }), ...(menuPage ? ['Previous sessions'] : []), ...(moreSessions ? ['More sessions'] : []), 'Back to computers']; }
   function rows() { return menuItems; }
   function getMode(): Mode { return mode; }
   function draw() {
@@ -163,7 +181,9 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
     if (mode === 'menu') {
       const start = Math.max(0, index - 5);
       const items = rows();
-      render({ mode, text: items.slice(start, start + 6).join('\n'), items, selected: index, start, menuId, draft: '', status: '' });
+      render({ mode, text: items.slice(start, start + 6).join('\n'), items, selected: index, start, menuId, draft: '', status: sessionStorageFailed
+        ? sessionList?.unsaved ? 'Session list changes could not be saved' : 'Saved session list unavailable'
+        : '' });
     }
     else if (mode === 'permission' && current?.permission) {
       const p = current.permission;
@@ -187,12 +207,16 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
     client = makeClient({
       onStatus(text) { record.status = text; if (current === record && mode === 'chat') draw(); },
       onSession(id) {
+        if (record.id || !record.creation) return;
+        const { origin: server, title } = record.creation;
+        sessionList?.remember(server, id, title);
+        void syncSessionList();
         if (record.epoch !== epoch) return;
         record.id = id; records.set(id, record);
         if (pendingDraft === record) pendingDraft = null;
         if (url) watch(record);
         if (!sessions.some(s => s.id === id)) {
-          sessions.unshift({ id, title: record.title || 'Codex session' });
+          sessions.unshift({ id, title: title || 'Codex session' });
         }
       },
     });
@@ -297,7 +321,18 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
     if (pendingDraft && (!pendingDraft.id || !records.has(pendingDraft.id))) { pendingDraft.unwatch?.(); pendingDraft.unwatch = null; stopClock(pendingDraft); }
     url = ''; token = ''; exit();
   }
-  function menu() { ++serial; replyMenu = undefined; menuSessions = sessions.slice(0, 18); menuItems = buildRows(); ++menuId; mode = 'menu'; index = 0; draw(); }
+  function showMenu(page: number) {
+    const listed = listedSessions();
+    menuPage = Math.min(page, Math.max(0, Math.ceil(listed.length / sessionsPerPage) - 1));
+    const start = menuPage * sessionsPerPage;
+    menuSessions = listed.slice(start, start + sessionsPerPage);
+    moreSessions = start + menuSessions.length < listed.length;
+    menuItems = buildRows();
+    ++serial; ++menuId;
+    replyMenu = undefined; mode = 'menu'; index = 0;
+    draw();
+  }
+  function menu() { showMenu(0); }
   return {
     leave,
     back() {
@@ -315,6 +350,7 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
         if (replyStorage && !helperRegistry) {
           await (registryLoad ??= replyStorage.read().then(raw => { helperRegistry = readHelpers(raw); }).catch(() => {}).finally(() => { registryLoad = undefined; }));
         }
+        if (sessionList) await syncSessionList();
         if (connection !== connectionSerial) return false;
         nextSessions = await probe.client.connect(nextAddress, nextToken);
       }
@@ -327,7 +363,10 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
       }
       ++serial;
       url = lastAddress = nextAddress; token = lastToken = nextToken;
-      replyMenu = undefined; sessions = visibleSessions(nextSessions); menuSessions = sessions.slice(0, 18); menuItems = buildRows(); ++menuId; mode = 'menu'; index = 0; draw();
+      sessions = visibleSessions(nextSessions);
+      sessionList?.updateTitles(origin(), sessions);
+      if (sessionList?.unsaved) void syncSessionList();
+      menu();
       clearInterval(refreshTimer);
       const refreshAddress = url, refreshToken = token;
       refreshTimer = setInterval(async () => {
@@ -337,6 +376,8 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
           const fresh = visibleSessions(await probe.client.connect(refreshAddress, refreshToken), refreshAddress);
           if (connection !== connectionSerial || !url || url !== refreshAddress || token !== refreshToken) return;
           sessions = [...fresh, ...sessions.filter(s => records.has(s.id) && !fresh.some(f => f.id === s.id))];
+          sessionList?.updateTitles(origin(), fresh);
+          if (sessionStorageFailed || sessionList?.unsaved) void syncSessionList();
           if (mode !== 'menu') draw();
         } catch { /* Keep the last known session list during a connection failure. */ }
         finally { refreshing = false; }
@@ -354,6 +395,11 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
       if (mode === 'permission') return;
       if (mode !== 'menu') return;
       if (index === rows().length - 1) { leave(); return; }
+      if (index > menuSessions.length) {
+        const previous = menuPage > 0 && index === menuSessions.length + 1;
+        showMenu(menuPage + (previous ? -1 : 1));
+        return;
+      }
       const session = index ? menuSessions[index - 1] : null;
       const request = ++serial;
       let record = session ? records.get(session.id) : pendingDraft;
@@ -455,7 +501,7 @@ export function createTerminalController({ render, exit, clearDraft = () => {}, 
       const finishSequence = record.finishSequence || 0;
       replyMenu = undefined;
       invalidateReplies(record);
-      record.title = draft.trim().slice(0, 40);
+      if (!record.id) record.creation = { origin: origin(), title: draft.trim().replace(/\s+/g, ' ').slice(0, 60) };
       startClock(record);
       let accepted = false;
       try { accepted = await record.client.send(url, token, draft.trim()); }

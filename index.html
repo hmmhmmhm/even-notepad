@@ -91,6 +91,14 @@
   <dialog id="codex-dialog" aria-labelledby="codex-title" lang="en">
     <header><h1 id="codex-title">Connect Even Terminal</h1><button type="button" id="codex-close" aria-label="Close">×</button></header>
     <button type="button" class="open-connection-guide" data-guide="terminal"><span aria-hidden="true">ⓘ</span> Terminal setup guide</button>
+    <div id="terminal-session-settings" hidden>
+      <label for="terminal-session-scope">Show sessions</label>
+      <select id="terminal-session-scope" aria-describedby="terminal-session-settings-status">
+        <option value="app">Created in this app</option>
+        <option value="all">All server sessions</option>
+      </select>
+      <p id="terminal-session-settings-status" role="status"></p>
+    </div>
     <div id="computer-list" aria-label="Saved computers"></div>
     <button type="button" id="computer-add">＋ Add computer</button>
     <div id="computer-form" hidden>

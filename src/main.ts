@@ -12,6 +12,7 @@ import { mountTypewriter } from './typewriter.ts';
 import { watchKeyboardHold } from './keyboard-hold.ts';
 import { createGlassesScroll } from './glasses-scroll.ts';
 import { createTerminalController } from './terminal-controller.ts';
+import { createTerminalSessionList } from './terminal-session-list.ts';
 import { createComputers } from './computers.ts';
 import { terminalLines, terminalStatusLabel } from './terminal-format.ts';
 import { watchPhoneMenuTouch } from './phone-menu-touch.ts';
@@ -612,6 +613,43 @@ const computers = createComputers({
     throw Error('App storage is not ready.');
   },
 });
+const sessionListKey = fixture ? 'terminal-session-list-fixture-v1' : 'terminal-session-list-v1';
+const terminalSessionList = createTerminalSessionList({
+  async read() {
+    if (bridge) return await bridge.getLocalStorage(sessionListKey);
+    if (fixture) return localStorage.getItem(sessionListKey) || '';
+    throw Error('App storage is not ready.');
+  },
+  async write(value) {
+    if (bridge) {
+      if (!await bridge.setLocalStorage(sessionListKey, value)) throw Error('Could not save session settings.');
+      return;
+    }
+    if (fixture) { localStorage.setItem(sessionListKey, value); return; }
+    throw Error('App storage is not ready.');
+  },
+});
+const sessionSettings = required<HTMLElement>('#terminal-session-settings');
+const sessionScope = required<HTMLSelectElement>('#terminal-session-scope');
+const sessionSettingsStatus = required<HTMLElement>('#terminal-session-settings-status');
+sessionSettings.hidden = !terminalEnabled;
+async function refreshSessionSettings() {
+  sessionScope.disabled = true;
+  try { await terminalSessionList.sync(); sessionSettingsStatus.textContent = ''; }
+  catch { sessionSettingsStatus.textContent = 'Could not load saved session settings.'; }
+  finally { sessionScope.value = terminalSessionList.scope; sessionScope.disabled = false; }
+}
+sessionScope.onchange = async () => {
+  const scope = sessionScope.value;
+  if (!terminalEnabled || (scope !== 'app' && scope !== 'all')) return;
+  sessionScope.disabled = true;
+  try {
+    await terminalSessionList.setScope(scope);
+    if (terminalMode === 'menu' && terminal.isOpen()) terminal.menu();
+    sessionSettingsStatus.textContent = '';
+  } catch { sessionSettingsStatus.textContent = 'Could not save session settings.'; }
+  finally { sessionScope.value = terminalSessionList.scope; sessionScope.disabled = false; }
+};
 let computerGeneration = 0;
 let computerBusy = false;
 async function renderComputers() {
@@ -667,12 +705,13 @@ async function connectComputer(entry: ComputerEntry, button?: HTMLButtonElement,
     codexView = false; home = fromHome; homeStatus = 'Connection failed. Check phone.';
     if (fromPicker && computerPicker) computerPicker.status = 'Connection failed. Try another computer.';
     lines = editorCursor(writerText, noteCursor).lines; first = viewport(lines, 0).max; void flush(); codexStatus.textContent = error instanceof Error ? error.message : 'Connection failed.';
-    if (fromHome && !fromPicker && !codexDialog.open) { codexDialog.showModal(); void renderComputers(); }
+    if (fromHome && !fromPicker && !codexDialog.open) { codexDialog.showModal(); void refreshSessionSettings(); void renderComputers(); }
   }
   finally { computerBusy = false; if (button) button.disabled = false; }
 }
 const replyStorageKey = fixture ? 'terminal-reply-helpers-fixture-v1' : 'terminal-reply-helpers-v1';
 const terminal = createTerminalController({
+  sessionList: terminalEnabled ? terminalSessionList : undefined,
   replyStorage: terminalEnabled ? {
     async read() {
       let cached: string | null = null;
@@ -761,6 +800,7 @@ required<HTMLButtonElement>('#open-codex').onclick = async () => {
     showTerminalPublicNotice();
     return;
   }
+  void refreshSessionSettings();
   try { await computers.load(); await renderComputers(); }
   catch (error) { codexStatus.textContent = error instanceof Error ? error.message : 'Connection failed.'; }
 };
@@ -833,11 +873,11 @@ async function chooseHome() {
     else if (entries.length > 1) showComputerPicker(entries);
     else {
       homeStatus = 'Choose a computer on phone.'; void flush();
-      codexDialog.showModal(); await renderComputers();
+      codexDialog.showModal(); void refreshSessionSettings(); await renderComputers();
     }
   } catch {
     homeStatus = 'Check connection on phone.'; void flush();
-    if (!codexDialog.open) codexDialog.showModal();
+    if (!codexDialog.open) { codexDialog.showModal(); void refreshSessionSettings(); }
     codexStatus.textContent = 'Could not load saved computers.';
   } finally { homeBusy = false; }
 }
