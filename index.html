@@ -112,12 +112,7 @@
   </dialog>
   <dialog id="connection-guide" aria-labelledby="guide-title" lang="en">
     <header><h1 id="guide-title"></h1><button type="button" id="guide-close" aria-label="Close setup guide">×</button></header>
-    <section id="guide-terminal" hidden>
-      <h2>1. Connect Tailscale</h2><p>Install <a href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Tailscale</a> on the phone and computer. Sign in to the same network.</p>
-      <h2>2. Start Even Terminal</h2><p>Install <a href="https://www.npmjs.com/package/@evenrealities/even-terminal" target="_blank" rel="noopener noreferrer">Even Terminal</a> and run these commands on the computer:</p><pre><code>npm install -g @evenrealities/even-terminal
-even-terminal --provider codex --tailscale --allow-cors</code></pre><p>Keep the server running. Use its connection token.</p>
-      <h2>3. Set up HTTPS</h2><p>Enable MagicDNS and HTTPS certificates in <a href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener noreferrer">Tailscale DNS settings</a>. Then run:</p><figure><img src="/guide/tailscale-https.webp" alt="Tailscale documentation showing the HTTPS setup steps"><figcaption>HTTPS setup in the Tailscale documentation</figcaption></figure><pre><code>tailscale serve --bg http://127.0.0.1:3456</code></pre><p>Enter the printed HTTPS address and connection token in the previous screen. This build allows only permitted server addresses. <a href="https://tailscale.com/docs/features/tailscale-serve" target="_blank" rel="noopener noreferrer">Tailscale Serve guide</a></p>
-    </section>
+    <section id="guide-terminal" hidden></section>
     <section id="guide-x" hidden>
       <h2>1. Open your app’s keys</h2><p>Open <a href="https://console.x.com/" target="_blank" rel="noopener noreferrer">X Developer Console</a>, select <strong>Apps</strong>, choose your app, then open <strong>Keys &amp; Tokens</strong>.</p>
       <figure><img src="/guide/x-console-example.png" alt="Example of the X Keys and Tokens screen, showing the OAuth 2.0 Client ID and Access Token sections. Identifying values are hidden."><figcaption>Illustration based on an X console screenshot. Your language and layout may differ; identifying values are hidden.</figcaption></figure>

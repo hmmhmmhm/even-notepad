@@ -31,6 +31,7 @@ import { loadNews, resolveLocale } from './news/news-service.ts';
 import { createNewsController } from './news/news-controller.ts';
 import { newsLayout, createNewsFrame, sendNewsFrame } from './news-display.ts';
 import { configurePublicTerminalDialog } from './terminal-public-notice.ts';
+import terminalSetupGuideHtml from './terminal-setup-guide.html?raw';
 
 declare global { interface Window { flutter_inappwebview?: { callHandler: (...args: unknown[]) => unknown } } }
 function required<T extends HTMLElement>(selector: string): T {
@@ -452,11 +453,13 @@ const documents = mountDocuments({
 const codexDialog = required<HTMLDialogElement>('#codex-dialog');
 const xDialog = required<HTMLDialogElement>('#x-dialog');
 const guideDialog = required<HTMLDialogElement>('#connection-guide');
+const terminalGuide = required<HTMLElement>('#guide-terminal');
+if (terminalEnabled) terminalGuide.innerHTML = terminalSetupGuideHtml;
 for (const button of document.querySelectorAll<HTMLButtonElement>('.open-connection-guide')) {
   button.addEventListener('click', () => {
     const terminal = button.dataset.guide === 'terminal';
     required<HTMLElement>('#guide-title').textContent = terminal ? 'Even Terminal setup' : 'X (Twitter) setup';
-    required<HTMLElement>('#guide-terminal').hidden = !terminal;
+    terminalGuide.hidden = !terminal;
     required<HTMLElement>('#guide-x').hidden = terminal;
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     guideDialog.scrollTop = 0;
